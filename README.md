@@ -4,7 +4,7 @@ A GeoGuessr-style street-view guessing game. Pick a city (or the whole world),
 get dropped on a random street, walk around, then pin where you think you are.
 Closer pins score more — 5,000 points max per round.
 
-**Play it here:** https://thepainillusion.github.io/Folder/
+**Play it here:** https://thepainillusion.github.io/cityguessr/
 
 ## Features
 
