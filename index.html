@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CityGuessr</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Patrick+Hand&display=swap">
+<style>
+/* Sketchboard look: graph-paper ground, pencil lines, marker-red accents, handwritten type.
+   The wobbly double border-radius is what makes boxes read as hand-drawn. */
+:root{
+  --paper:#f9f4e8;       /* sketchbook paper */
+  --paper-2:#f1e9d6;
+  --card:#fffdf5;        /* taped-on note */
+  --ink:#2e2b25;
+  --pencil:#6f685c;
+  --line:#b9b0a0;
+  --accent:#d6482f;      /* red marker */
+  --hilite:#ffe08a;      /* highlighter */
+  --good:#3e7d4e;
+  --bad:#c23a2f;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;color:var(--ink);
+  background:
+    repeating-linear-gradient(0deg, transparent 0 26px, rgba(110,100,80,.09) 26px 27px),
+    repeating-linear-gradient(90deg, transparent 0 26px, rgba(110,100,80,.09) 26px 27px),
+    var(--paper);
+  font-family:"Patrick Hand","Comic Sans MS",cursive;font-size:18px;line-height:1.45;
+}
+h1,h2,h3,.display{font-family:"Caveat","Patrick Hand",cursive;letter-spacing:.01em}
+button{font:inherit;cursor:pointer;border:2px solid var(--ink);background:var(--card);color:var(--ink);
+  border-radius:255px 15px 225px 15px/15px 225px 15px 255px;box-shadow:2px 3px 0 rgba(46,43,37,.22)}
+button:active{transform:translate(1px,2px);box-shadow:1px 1px 0 rgba(46,43,37,.22)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+input,select{font:inherit;color:var(--ink);background:var(--card);border:2px solid var(--ink);
+  border-radius:15px 240px 15px 255px/255px 15px 225px 15px;padding:8px 12px}
+.screen{display:none;min-height:100%}
+.screen.active{display:block}
+#game.active,#summary.active{display:flex;flex-direction:column}
+
+/* ---------- Home ---------- */
+#home .wrap{max-width:980px;margin:0 auto;padding:40px max(20px,env(safe-area-inset-right,0px)) 64px max(20px,env(safe-area-inset-left,0px))}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand h1{font-size:clamp(3.2rem,8vw,4.6rem);font-weight:700;margin:0}
+.brand .pin{color:var(--accent)}
+.tagline{color:var(--pencil);margin:0 0 28px;max-width:52ch}
+.keycard{background:var(--card);border:2px solid var(--ink);border-radius:255px 15px 225px 15px/15px 225px 15px 255px;padding:18px 22px;margin-bottom:28px;box-shadow:3px 4px 0 rgba(46,43,37,.18)}
+.keycard h2{margin:0 0 4px;font-size:1.6rem}
+.keycard p{margin:0 0 12px;color:var(--pencil);font-size:.95rem;max-width:70ch}
+.keyrow{display:flex;gap:10px;flex-wrap:wrap}
+.keyrow input{flex:1;min-width:220px}
+.btn{padding:10px 18px}
+.btn:hover{background:var(--paper-2)}
+.btn-primary{background:var(--accent);color:#fff8ec;font-weight:700}
+.btn-primary:hover{background:#e2593f}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+.keystatus{font-size:.88rem;margin-top:10px;color:var(--pencil)}
+.keystatus .ok{color:var(--good)} .keystatus .err{color:var(--bad)}
+.sectionlabel{font-family:"Caveat",cursive;font-weight:700;font-size:1.45rem;color:var(--ink);margin:26px 0 12px;display:inline-block;border-bottom:3px dashed var(--line);padding-bottom:2px;display:block}
+.citygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.citycard{background:var(--card);padding:12px 14px;text-align:left;display:flex;flex-direction:column;gap:0}
+.citycard:nth-child(odd){transform:rotate(-.6deg)}
+.citycard:nth-child(even){transform:rotate(.6deg)}
+.citycard:hover{transform:rotate(0);border-color:var(--accent)}
+.citycard.selected{background:var(--hilite);border-color:var(--accent)}
+.citycard .cname{font-family:"Caveat",cursive;font-weight:700;font-size:1.45rem;line-height:1.1}
+.citycard .ccountry{font-size:.88rem;color:var(--pencil)}
+.searchrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.searchrow input{flex:1;min-width:220px}
+.searchresult{margin-top:8px;font-size:.95rem;color:var(--pencil)}
+.settings{display:flex;gap:22px;flex-wrap:wrap;margin-top:6px}
+.setting label{display:block;font-size:.9rem;color:var(--pencil);margin-bottom:5px}
+.startbar{margin-top:34px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.startbar .picked{color:var(--pencil)}
+.startbar .picked b{color:var(--ink)}
+.bigstart{font-size:1.25rem;padding:14px 34px}
+
+/* ---------- Game ---------- */
+#game{position:relative;height:100%}
+#pano{position:absolute;inset:0}
+.hud{position:absolute;top:14px;left:14px;right:14px;display:flex;justify-content:space-between;gap:10px;pointer-events:none;z-index:5}
+.hud>*{pointer-events:auto}
+.hudbox{background:rgba(255,253,245,.94);border:2px solid var(--ink);border-radius:120px 12px 110px 14px/14px 110px 12px 120px;padding:8px 16px;font-size:1rem;display:flex;gap:16px;align-items:center;box-shadow:2px 3px 0 rgba(46,43,37,.22)}
+.hudbox b{font-family:"Caveat",cursive;font-size:1.2rem}
+#timer{font-variant-numeric:tabular-nums;font-weight:700}
+#timer.low{color:var(--bad)}
+.hudbtn{background:rgba(255,253,245,.94);padding:8px 14px}
+.hudbtn:hover{border-color:var(--accent)}
+#guessbox{position:absolute;right:14px;bottom:14px;z-index:6;display:flex;flex-direction:column;align-items:stretch;gap:8px;
+  width:min(320px,calc(100vw - 28px));transition:width .18s ease}
+#guessbox.big{width:min(680px,calc(100vw - 28px))}
+#guessmap{height:210px;border-radius:14px 60px 14px 70px/60px 14px 70px 14px;border:2px solid var(--ink);transition:height .18s ease;background:var(--paper-2);overflow:hidden;box-shadow:3px 4px 0 rgba(46,43,37,.22)}
+#guessbox.big #guessmap{height:min(460px,55vh)}
+#guessbtn{padding:12px;font-weight:700;font-size:1.1rem}
+.maptools{display:flex;justify-content:space-between;gap:8px}
+.maptools button{flex:0 0 auto;background:rgba(255,253,245,.94);padding:6px 12px;font-size:.9rem}
+#loading{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;text-align:center;padding:20px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 26px, rgba(110,100,80,.09) 26px 27px),
+    repeating-linear-gradient(90deg, transparent 0 26px, rgba(110,100,80,.09) 26px 27px),
+    var(--paper)}
+#loading .spin{width:46px;height:46px;border-radius:50%;border:4px dashed var(--pencil);border-top-color:var(--accent);animation:spin 1.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#loading .spin{animation:none}}
+#loading h2{font-size:2rem;margin:0}
+#loading p{color:var(--pencil);max-width:40ch;margin:0}
+
+/* ---------- Result overlay ---------- */
+#result{position:absolute;inset:0;z-index:20;display:none;background:rgba(60,52,38,.5);align-items:center;justify-content:center;padding:18px}
+#result.show{display:flex}
+.resultcard{background:var(--card);border:2px solid var(--ink);border-radius:255px 18px 225px 18px/18px 225px 18px 255px;width:min(720px,100%);padding:24px;display:flex;flex-direction:column;gap:14px;box-shadow:4px 5px 0 rgba(46,43,37,.3)}
+.resultcard h2{margin:0;font-size:2rem}
+#resultmap{height:min(300px,38vh);border-radius:14px 60px 14px 70px/60px 14px 70px 14px;border:2px solid var(--ink);background:var(--paper-2);overflow:hidden}
+.scoreline{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.scoreline .dist{color:var(--pencil)}
+.scoreline .pts{font-family:"Caveat",cursive;font-weight:700;font-size:2rem;color:var(--accent)}
+.scorebar{height:12px;background:var(--paper-2);border:2px solid var(--ink);border-radius:6px;overflow:hidden}
+.scorebar i{display:block;height:100%;background:var(--accent);transition:width .6s ease}
+.resultactions{display:flex;justify-content:flex-end}
+
+/* ---------- Summary ---------- */
+#summary{padding:28px max(20px,env(safe-area-inset-right,0px)) 48px max(20px,env(safe-area-inset-left,0px));max-width:860px;margin:0 auto;width:100%;gap:18px}
+#summary h1{margin:0;font-size:clamp(2.4rem,6vw,3.4rem)}
+#summary .total{font-family:"Caveat",cursive;font-weight:700;font-size:clamp(2.6rem,8vw,3.8rem);color:var(--accent)}
+#summarymap{height:min(380px,45vh);border-radius:14px 60px 14px 70px/60px 14px 70px 14px;border:2px solid var(--ink);background:var(--paper-2);overflow:hidden;box-shadow:3px 4px 0 rgba(46,43,37,.2)}
+.roundlist{display:flex;flex-direction:column;gap:10px}
+.roundrow{display:flex;justify-content:space-between;gap:12px;background:var(--card);border:2px solid var(--ink);border-radius:120px 12px 110px 14px/14px 110px 12px 120px;padding:8px 18px;font-variant-numeric:tabular-nums}
+.roundrow .r{color:var(--pencil)}
+.summaryactions{display:flex;gap:12px;flex-wrap:wrap}
+
+#banner{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:50;background:#fbe6df;border:2px solid var(--bad);color:#7a2016;padding:12px 18px;border-radius:120px 12px 110px 14px/14px 110px 12px 120px;max-width:min(560px,90vw);display:none;box-shadow:3px 4px 0 rgba(46,43,37,.25)}
+#banner.show{display:block}
+@media (max-width:560px){
+  .hudbox{font-size:.85rem;gap:10px;padding:7px 10px}
+  #guessmap{height:170px}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<section id="home" class="screen active">
+  <div class="wrap">
+    <div class="brand"><h1><span class="pin">&#9679;</span> CityGuessr</h1></div>
+    <p class="tagline">Pick a city. Get dropped on a random street. Walk, look around, then pin where you think you are. Closer pins score more &ndash; 5,000 points max per round.</p>
+
+    <div class="keycard" id="keycard">
+      <h2>Google Maps API key</h2>
+      <p>Street View needs a Google Maps API key. Paste yours below &ndash; it's saved only in this browser. Setup takes about 10 minutes and the free tier covers casual play.</p>
+      <div class="keyrow">
+        <input id="keyinput" type="text" autocomplete="off" spellcheck="false" placeholder="AIza...">
+        <button class="btn btn-primary" id="savekey">Save key</button>
+      </div>
+      <div class="keystatus" id="keystatus">No key saved yet.</div>
+    </div>
+
+    <div class="sectionlabel">Featured cities</div>
+    <div class="citygrid" id="citygrid"></div>
+
+    <div class="sectionlabel">Or search any city</div>
+    <div class="searchrow">
+      <input id="citysearch" type="text" placeholder="e.g. Lisbon, Osaka, Buenos Aires" autocomplete="off">
+      <button class="btn" id="searchbtn">Find city</button>
+    </div>
+    <div class="searchresult" id="searchresult"></div>
+
+    <div class="sectionlabel">Game settings</div>
+    <div class="settings">
+      <div class="setting">
+        <label for="roundsel">Rounds</label>
+        <select id="roundsel"><option value="3">3</option><option value="5" selected>5</option><option value="10">10</option></select>
+      </div>
+      <div class="setting">
+        <label for="timersel">Timer per round</label>
+        <select id="timersel"><option value="0" selected>Off</option><option value="60">1 minute</option><option value="120">2 minutes</option></select>
+      </div>
+      <div class="setting">
+        <label for="areasel">Play area</label>
+        <select id="areasel" disabled><option>Choose a city first</option></select>
+      </div>
+      <div class="setting" id="radiuswrap" hidden>
+        <label for="radiussel">Radius from centre</label>
+        <select id="radiussel">
+          <option value="10">10 km</option>
+          <option value="25">25 km</option>
+          <option value="50" selected>50 km</option>
+          <option value="100">100 km</option>
+          <option value="150">150 km</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="startbar">
+      <button class="btn btn-primary bigstart" id="startbtn" disabled>Start game</button>
+      <span class="picked" id="pickedlabel">Choose a city to begin.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GAME ============ -->
+<section id="game" class="screen">
+  <div id="pano"></div>
+  <div class="hud">
+    <div class="hudbox"><span>Round <b id="roundnum">1</b>/<b id="roundtotal">5</b></span><span>Score <b id="runscore">0</b></span><span id="timerwrap" hidden>&#9201; <span id="timer">2:00</span></span></div>
+    <div style="display:flex;gap:8px">
+      <button class="hudbtn" id="returnstart" title="Jump back to where you were dropped">Return to start</button>
+      <button class="hudbtn" id="quitbtn">Quit</button>
+    </div>
+  </div>
+  <div id="guessbox">
+    <div class="maptools">
+      <button id="togglemap" aria-label="Expand or shrink the guess map">Expand map</button>
+    </div>
+    <div id="guessmap" role="application" aria-label="Guess map &ndash; click to place your pin"></div>
+    <button class="btn-primary" id="guessbtn" disabled>Place your pin on the map</button>
+  </div>
+  <div id="loading">
+    <div class="spin" aria-hidden="true"></div>
+    <h2 id="loadtitle" class="display">Finding a spot&hellip;</h2>
+    <p id="loadsub"></p>
+  </div>
+  <div id="result">
+    <div class="resultcard">
+      <h2 id="resulttitle">Round 1 result</h2>
+      <div id="resultmap"></div>
+      <div class="scoreline"><span class="dist" id="resultdist"></span><span class="pts" id="resultpts"></span></div>
+      <div class="scorebar"><i id="scorefill" style="width:0%"></i></div>
+      <div class="resultactions"><button class="btn btn-primary" id="nextbtn">Next round</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SUMMARY ============ -->
+<section id="summary" class="screen">
+  <h1 id="sumtitle">Game over</h1>
+  <div><span class="total" id="sumtotal">0</span> <span style="color:var(--muted)" id="summax">/ 25,000</span></div>
+  <div id="summarymap"></div>
+  <div class="roundlist" id="roundlist"></div>
+  <div class="summaryactions">
+    <button class="btn btn-primary" id="againbtn">Play this city again</button>
+    <button class="btn" id="homebtn">Choose another city</button>
+  </div>
+</section>
+
+<div id="banner" role="alert"></div>
+
+<script>
+"use strict";
+/* ================= Config ================= */
+const EMBEDDED_KEY = "AIzaSyDexcb9iv4ojnjQ7Evt9GXEZQISdf8T0-A"; // optionally hard-code a key here to skip the key card
+const LS_KEY = "cityguessr_gmaps_key";
+
+const CITIES = [
+  {name:"Adelaide",   country:"Australia",     sw:[-34.955,138.520], ne:[-34.860,138.650],
+   wide:{sw:[-36.100,136.500], ne:[-34.450,139.000], label:"Greater Adelaide – Gawler to Victor Harbor + Kangaroo Island"}},
+  {name:"Sydney",     country:"Australia",     sw:[-33.920,151.150], ne:[-33.820,151.280],
+   wide:{sw:[-34.450,150.250], ne:[-33.200,151.600], label:"Greater Sydney – Blue Mountains, Wollongong, Central Coast"}},
+  {name:"Melbourne",  country:"Australia",     sw:[-37.855,144.900], ne:[-37.760,145.005]},
+  {name:"London",     country:"United Kingdom",sw:[ 51.460, -0.220], ne:[ 51.560,  0.005]},
+  {name:"Paris",      country:"France",        sw:[ 48.820,  2.250], ne:[ 48.900,  2.420]},
+  {name:"New York",   country:"United States", sw:[ 40.680,-74.020], ne:[ 40.820,-73.920]},
+  {name:"Tokyo",      country:"Japan",         sw:[ 35.620,139.650], ne:[ 35.740,139.820]},
+  {name:"Rome",       country:"Italy",         sw:[ 41.860, 12.440], ne:[ 41.935, 12.550]},
+  {name:"Barcelona",  country:"Spain",         sw:[ 41.350,  2.110], ne:[ 41.430,  2.215]},
+  {name:"Amsterdam",  country:"Netherlands",   sw:[ 52.330,  4.830], ne:[ 52.400,  4.950]},
+];
+
+/* World mode: ~230 cities in countries with Street View coverage. [name, lat, lng] */
+const WORLD_CITIES=[
+["London",51.51,-0.13],["Paris",48.86,2.35],["Berlin",52.52,13.40],["Hamburg",53.55,10.00],["Munich",48.14,11.58],
+["Cologne",50.94,6.96],["Frankfurt",50.11,8.68],["Stuttgart",48.78,9.18],["Vienna",48.21,16.37],["Zurich",47.37,8.54],
+["Geneva",46.20,6.14],["Amsterdam",52.37,4.90],["Rotterdam",51.92,4.48],["Brussels",50.85,4.35],["Antwerp",51.22,4.40],
+["Luxembourg",49.61,6.13],["Madrid",40.42,-3.70],["Barcelona",41.39,2.17],["Valencia",39.47,-0.38],["Seville",37.39,-5.99],
+["Bilbao",43.26,-2.93],["Zaragoza",41.65,-0.89],["Lisbon",38.72,-9.14],["Porto",41.15,-8.61],["Rome",41.90,12.50],
+["Milan",45.46,9.19],["Naples",40.85,14.27],["Turin",45.07,7.69],["Florence",43.77,11.26],["Venice",45.44,12.32],
+["Bologna",44.49,11.34],["Palermo",38.12,13.36],["Athens",37.98,23.73],["Thessaloniki",40.64,22.94],["Dublin",53.35,-6.26],
+["Edinburgh",55.95,-3.19],["Glasgow",55.86,-4.25],["Manchester",53.48,-2.24],["Birmingham",52.48,-1.90],["Liverpool",53.41,-2.98],
+["Cardiff",51.48,-3.18],["Belfast",54.60,-5.93],["Copenhagen",55.68,12.57],["Stockholm",59.33,18.07],["Gothenburg",57.71,11.97],
+["Oslo",59.91,10.75],["Bergen",60.39,5.32],["Helsinki",60.17,24.94],["Reykjavik",64.15,-21.94],["Warsaw",52.23,21.01],
+["Krakow",50.06,19.94],["Gdansk",54.35,18.65],["Wroclaw",51.11,17.03],["Prague",50.08,14.44],["Brno",49.20,16.61],
+["Budapest",47.50,19.04],["Bratislava",48.15,17.11],["Ljubljana",46.05,14.51],["Zagreb",45.81,15.98],["Split",43.51,16.44],
+["Belgrade",44.79,20.45],["Sofia",42.70,23.32],["Bucharest",44.43,26.10],["Cluj-Napoca",46.77,23.59],["Vilnius",54.69,25.28],
+["Riga",56.95,24.11],["Tallinn",59.44,24.75],["Kyiv",50.45,30.52],["Lviv",49.84,24.03],["Chisinau",47.01,28.86],
+["Tirana",41.33,19.82],["Skopje",41.99,21.43],["Podgorica",42.44,19.26],["Istanbul",41.01,28.98],["Ankara",39.93,32.86],
+["Izmir",38.42,27.14],["Moscow",55.76,37.62],["St Petersburg",59.93,30.34],["Tbilisi",41.72,44.79],["Yerevan",40.18,44.51],
+["Nicosia",35.19,33.38],["Valletta",35.90,14.51],["Monaco",43.73,7.42],["Lyon",45.76,4.84],["Marseille",43.30,5.37],
+["Toulouse",43.60,1.44],["Nice",43.70,7.27],["Bordeaux",44.84,-0.58],["Nantes",47.22,-1.55],["Strasbourg",48.58,7.75],
+["New York",40.71,-74.01],["Los Angeles",34.05,-118.24],["Chicago",41.88,-87.63],["Houston",29.76,-95.37],["Phoenix",33.45,-112.07],
+["Philadelphia",39.95,-75.17],["San Antonio",29.42,-98.49],["San Diego",32.72,-117.16],["Dallas",32.78,-96.80],["San Francisco",37.77,-122.42],
+["Seattle",47.61,-122.33],["Denver",39.74,-104.99],["Boston",42.36,-71.06],["Washington DC",38.91,-77.04],["Miami",25.76,-80.19],
+["Atlanta",33.75,-84.39],["New Orleans",29.95,-90.07],["Las Vegas",36.17,-115.14],["Portland",45.52,-122.68],["Minneapolis",44.98,-93.27],
+["Detroit",42.33,-83.05],["Nashville",36.16,-86.78],["Austin",30.27,-97.74],["Salt Lake City",40.76,-111.89],["Kansas City",39.10,-94.58],
+["St Louis",38.63,-90.20],["Charlotte",35.23,-80.84],["Pittsburgh",40.44,-80.00],["Baltimore",39.29,-76.61],["Cleveland",41.50,-81.69],
+["Honolulu",21.31,-157.86],["Anchorage",61.22,-149.90],["Toronto",43.65,-79.38],["Montreal",45.50,-73.57],["Vancouver",49.28,-123.12],
+["Calgary",51.05,-114.07],["Edmonton",53.55,-113.49],["Ottawa",45.42,-75.70],["Quebec City",46.81,-71.21],["Winnipeg",49.90,-97.14],
+["Halifax",44.65,-63.57],["Mexico City",19.43,-99.13],["Guadalajara",20.67,-103.35],["Monterrey",25.69,-100.32],["Puebla",19.04,-98.20],
+["Merida",20.97,-89.62],["Cancun",21.16,-86.85],["Tijuana",32.51,-117.04],["Guatemala City",14.63,-90.51],["San Jose CR",9.93,-84.08],
+["Panama City",8.98,-79.52],["Santo Domingo",18.49,-69.89],["San Juan",18.47,-66.11],["Bogota",4.71,-74.07],["Medellin",6.24,-75.57],
+["Cartagena",10.39,-75.51],["Cali",3.45,-76.53],["Quito",-0.18,-78.47],["Guayaquil",-2.19,-79.89],["Lima",-12.05,-77.04],
+["Arequipa",-16.41,-71.54],["Cusco",-13.53,-71.97],["La Paz",-16.49,-68.12],["Santiago",-33.45,-70.67],["Valparaiso",-33.05,-71.62],
+["Buenos Aires",-34.60,-58.38],["Cordoba AR",-31.42,-64.18],["Rosario",-32.95,-60.64],["Mendoza",-32.89,-68.84],["Montevideo",-34.90,-56.16],
+["Asuncion",-25.26,-57.58],["Sao Paulo",-23.55,-46.63],["Rio de Janeiro",-22.91,-43.17],["Brasilia",-15.78,-47.93],["Salvador",-12.97,-38.50],
+["Fortaleza",-3.72,-38.54],["Recife",-8.05,-34.88],["Belo Horizonte",-19.92,-43.94],["Curitiba",-25.43,-49.27],["Porto Alegre",-30.03,-51.22],
+["Manaus",-3.10,-60.02],["Tokyo",35.68,139.69],["Osaka",34.69,135.50],["Kyoto",35.01,135.77],["Nagoya",35.18,136.91],
+["Sapporo",43.06,141.35],["Fukuoka",33.59,130.40],["Hiroshima",34.39,132.46],["Sendai",38.27,140.87],["Seoul",37.57,126.98],
+["Busan",35.18,129.08],["Incheon",37.46,126.71],["Daegu",35.87,128.60],["Taipei",25.03,121.57],["Kaohsiung",22.63,120.30],
+["Taichung",24.15,120.67],["Hong Kong",22.32,114.17],["Macau",22.20,113.55],["Singapore",1.35,103.82],["Kuala Lumpur",3.14,101.69],
+["George Town",5.41,100.33],["Bangkok",13.76,100.50],["Chiang Mai",18.79,98.98],["Phuket",7.88,98.39],["Jakarta",-6.21,106.85],
+["Surabaya",-7.25,112.75],["Bandung",-6.92,107.61],["Denpasar",-8.65,115.22],["Manila",14.60,120.98],["Cebu City",10.32,123.89],
+["Davao",7.07,125.61],["Hanoi",21.03,105.85],["Ho Chi Minh City",10.82,106.63],["Da Nang",16.05,108.22],["Phnom Penh",11.56,104.92],
+["Vientiane",17.97,102.63],["Colombo",6.93,79.85],["Dhaka",23.81,90.41],["Ulaanbaatar",47.89,106.91],["Almaty",43.24,76.95],
+["Astana",51.17,71.43],["Bishkek",42.87,74.59],["Tel Aviv",32.08,34.78],["Jerusalem",31.77,35.21],["Haifa",32.79,34.99],
+["Amman",31.95,35.93],["Dubai",25.20,55.27],["Abu Dhabi",24.45,54.38],["Doha",25.29,51.53],["Johannesburg",-26.20,28.05],
+["Cape Town",-33.92,18.42],["Durban",-29.86,31.03],["Pretoria",-25.75,28.19],["Gqeberha",-33.96,25.60],["Nairobi",-1.29,36.82],
+["Mombasa",-4.04,39.67],["Kampala",0.35,32.58],["Kigali",-1.95,30.06],["Accra",5.60,-0.19],["Lagos",6.52,3.38],
+["Dakar",14.72,-17.47],["Tunis",36.81,10.18],["Gaborone",-24.63,25.92],["Antananarivo",-18.88,47.51],["Sydney",-33.87,151.21],
+["Melbourne",-37.81,144.96],["Brisbane",-27.47,153.03],["Perth",-31.95,115.86],["Adelaide",-34.93,138.60],["Gold Coast",-28.00,153.43],
+["Canberra",-35.28,149.13],["Hobart",-42.88,147.33],["Darwin",-12.46,130.84],["Cairns",-16.92,145.77],["Newcastle AU",-32.93,151.78],
+["Auckland",-36.85,174.76],["Wellington",-41.29,174.78],["Christchurch",-43.53,172.64],["Queenstown",-45.03,168.66],["Dunedin",-45.87,170.50]
+];
+
+/* ================= State ================= */
+let mapsReady = false, mapsLoading = null;
+let selectedCity = null;      // {name, country, sw, ne}
+let game = null;              // active game state
+let svService = null, geocoder = null;
+let panorama = null, guessMap = null, guessMarker = null, guessLatLng = null;
+
+/* ================= Helpers ================= */
+const $ = id => document.getElementById(id);
+function show(screenId){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  $(screenId).classList.add("active");
+}
+function banner(msg, ms=8000){
+  const b=$("banner"); b.textContent=msg; b.classList.add("show");
+  clearTimeout(banner._t); banner._t=setTimeout(()=>b.classList.remove("show"), ms);
+}
+function getKey(){ try{ return localStorage.getItem(LS_KEY) || EMBEDDED_KEY; }catch(e){ return EMBEDDED_KEY; } }
+function setKey(k){ try{ localStorage.setItem(LS_KEY,k); }catch(e){} }
+function fmtKm(m){ return m<1000 ? Math.round(m)+" m" : (m/1000).toFixed(m<10000?2:1)+" km"; }
+function fmtPts(n){ return n.toLocaleString("en-US"); }
+function areaBounds(area){
+  if(area.type==="world") return new google.maps.LatLngBounds(
+    new google.maps.LatLng(-55,-179), new google.maps.LatLng(72,179));
+  if(area.type==="circle"){
+    const c=new google.maps.LatLng(area.center[0],area.center[1]);
+    const b=new google.maps.LatLngBounds();
+    [0,90,180,270].forEach(h=>b.extend(google.maps.geometry.spherical.computeOffset(c,area.radiusM,h)));
+    return b;
+  }
+  return new google.maps.LatLngBounds(
+    new google.maps.LatLng(area.sw[0],area.sw[1]), new google.maps.LatLng(area.ne[0],area.ne[1]));
+}
+function rebuildAreaOptions(){
+  const sel=$("areasel");
+  sel.innerHTML="";
+  if(!selectedCity){
+    sel.disabled=true;
+    sel.innerHTML="<option>Choose a city first</option>";
+    $("radiuswrap").hidden=true;
+    return;
+  }
+  sel.disabled=false;
+  if(selectedCity.world){
+    const o=document.createElement("option");
+    o.value="world"; o.textContent="Random cities worldwide";
+    sel.appendChild(o);
+    $("radiuswrap").hidden=true;
+    return;
+  }
+  const opts=[["city", selectedCity.searched ? "City boundary (from Google)" : "City centre (classic)"]];
+  if(selectedCity.wide) opts.push(["wide", selectedCity.wide.label]);
+  opts.push(["radius","Within a radius of the centre"]);
+  for(const [v,l] of opts){
+    const o=document.createElement("option"); o.value=v; o.textContent=l; sel.appendChild(o);
+  }
+  sel.value = selectedCity.wide ? "wide" : "city";
+  $("radiuswrap").hidden=true;
+}
+function currentArea(){
+  const c=selectedCity;
+  if(c.world) return {type:"world", desc:"Random cities worldwide"};
+  const mode=$("areasel").disabled ? "city" : $("areasel").value;
+  if(mode==="wide" && c.wide) return {type:"box", sw:c.wide.sw, ne:c.wide.ne, desc:c.wide.label};
+  if(mode==="radius"){
+    const km=parseInt($("radiussel").value,10);
+    return {type:"circle", center:[(c.sw[0]+c.ne[0])/2,(c.sw[1]+c.ne[1])/2], radiusM:km*1000, desc:km+" km around "+c.name};
+  }
+  return {type:"box", sw:c.sw, ne:c.ne, desc:""};
+}
+
+/* ================= Maps loader ================= */
+window.gm_authFailure = function(){
+  mapsReady=false;
+  $("keystatus").innerHTML='<span class="err">Google rejected this key (check it has the Maps JavaScript API enabled and billing on, then reload the page).</span>';
+  banner("Google rejected the API key. Check the key, then reload the page.", 12000);
+  show("home");
+};
+function loadMaps(){
+  if(mapsReady) return Promise.resolve();
+  if(mapsLoading) return mapsLoading;
+  const key=getKey();
+  if(!key) return Promise.reject("nokey");
+  mapsLoading=new Promise((resolve,reject)=>{
+    window.__gmapsReady=function(){
+      mapsReady=true;
+      svService=new google.maps.StreetViewService();
+      geocoder=new google.maps.Geocoder();
+      resolve();
+    };
+    const s=document.createElement("script");
+    s.src="https://maps.googleapis.com/maps/api/js?key="+encodeURIComponent(key)
+         +"&v=weekly&libraries=geometry&callback=__gmapsReady&loading=async";
+    s.onerror=()=>{ mapsLoading=null; reject("loadfail"); };
+    document.head.appendChild(s);
+  });
+  return mapsLoading;
+}
+
+/* ================= Home screen ================= */
+function refreshKeyUI(){
+  const key=getKey();
+  if(key){
+    $("keyinput").value=key;
+    $("keystatus").innerHTML='<span class="ok">Key saved.</span> It stays in this browser only.';
+  } else {
+    $("keystatus").textContent="No key saved yet.";
+  }
+  updateStartBtn();
+}
+function updateStartBtn(){
+  $("startbtn").disabled = !(getKey() && selectedCity);
+  $("pickedlabel").innerHTML = selectedCity
+    ? "Playing <b>"+selectedCity.name+"</b>"+(selectedCity.country?", "+selectedCity.country:"")
+    : (getKey() ? "Choose a city to begin." : "Save an API key, then choose a city.");
+}
+function buildCityGrid(){
+  const grid=$("citygrid");
+  const w=document.createElement("button");
+  w.className="citycard";
+  w.innerHTML='<span class="cname">🌍 World</span><span class="ccountry">'+WORLD_CITIES.length+' cities worldwide</span>';
+  w.addEventListener("click",()=>{
+    document.querySelectorAll(".citycard").forEach(x=>x.classList.remove("selected"));
+    w.classList.add("selected");
+    selectedCity={name:"World", country:"", world:true, sw:[0,0], ne:[0,0]};
+    $("searchresult").textContent="";
+    rebuildAreaOptions();
+    updateStartBtn();
+  });
+  grid.appendChild(w);
+  CITIES.forEach(c=>{
+    const b=document.createElement("button");
+    b.className="citycard";
+    b.innerHTML='<span class="cname">'+c.name+'</span><span class="ccountry">'+c.country+'</span>';
+    b.addEventListener("click",()=>{
+      document.querySelectorAll(".citycard").forEach(x=>x.classList.remove("selected"));
+      b.classList.add("selected");
+      selectedCity=c;
+      $("searchresult").textContent="";
+      rebuildAreaOptions();
+      updateStartBtn();
+    });
+    grid.appendChild(b);
+  });
+}
+async function searchCity(){
+  const q=$("citysearch").value.trim();
+  const out=$("searchresult");
+  if(!q) return;
+  if(!getKey()){ out.textContent="Save an API key first – search uses Google geocoding."; return; }
+  out.textContent="Searching…";
+  try{
+    await loadMaps();
+    const res=await new Promise((resolve,reject)=>{
+      geocoder.geocode({address:q},(r,s)=> s==="OK"&&r&&r.length ? resolve(r) : reject(s));
+    });
+    const g=res[0];
+    const vb=g.geometry.bounds || g.geometry.viewport;
+    const sw=vb.getSouthWest(), ne=vb.getNorthEast();
+    selectedCity={ name:(g.address_components&&g.address_components[0]?g.address_components[0].long_name:q),
+                   country:"", label:g.formatted_address, searched:true,
+                   sw:[sw.lat(),sw.lng()], ne:[ne.lat(),ne.lng()] };
+    document.querySelectorAll(".citycard").forEach(x=>x.classList.remove("selected"));
+    out.textContent="Found: "+g.formatted_address+" – ready to play.";
+    rebuildAreaOptions();
+    updateStartBtn();
+  }catch(e){
+    out.textContent = e==="ZERO_RESULTS" ? "No match found – try adding the country (e.g. “Springfield, USA”)."
+      : "Search failed ("+e+"). Check the key has the Geocoding API enabled.";
+  }
+}
+
+/* ================= Street View location hunting ================= */
+function randomPointIn(area){
+  if(area.type==="world"){
+    const c=WORLD_CITIES[Math.floor(Math.random()*WORLD_CITIES.length)];
+    area.lastPlace=c[0];
+    const d=4000*Math.sqrt(Math.random()), heading=Math.random()*360;
+    return google.maps.geometry.spherical.computeOffset(new google.maps.LatLng(c[1],c[2]), d, heading);
+  }
+  if(area.type==="circle"){
+    // sqrt keeps the samples evenly spread over the disc, not bunched at the centre
+    const d=area.radiusM*Math.sqrt(Math.random()), heading=Math.random()*360;
+    return google.maps.geometry.spherical.computeOffset(
+      new google.maps.LatLng(area.center[0],area.center[1]), d, heading);
+  }
+  // sample the inner 90% of the box to avoid edges
+  const latR=area.ne[0]-area.sw[0], lngR=area.ne[1]-area.sw[1];
+  const lat=area.sw[0]+latR*(0.05+0.9*Math.random());
+  const lng=area.sw[1]+lngR*(0.05+0.9*Math.random());
+  return new google.maps.LatLng(lat,lng);
+}
+function getPano(req){
+  return new Promise((resolve,reject)=>{
+    svService.getPanorama(req,(data,status)=> status==="OK"?resolve(data):reject(status));
+  });
+}
+async function findStreetViewSpot(area, usedIds){
+  // wide regions contain ocean and bushland, so search harder with growing radii
+  for(let attempt=0; attempt<40; attempt++){
+    const radius = attempt<16 ? 800 : (attempt<30 ? 3000 : 8000);
+    try{
+      const data=await getPano({
+        location:randomPointIn(area), radius,
+        source:google.maps.StreetViewSource.OUTDOOR,
+        preference:google.maps.StreetViewPreference.BEST
+      });
+      const id=data.location.pano;
+      if(usedIds.has(id)) continue;
+      usedIds.add(id);
+      return data;
+    }catch(e){ /* no coverage near that point; try another */ }
+  }
+  throw new Error("nocoverage");
+}
+
+/* ================= Game flow ================= */
+function startGame(city, area, rounds, timerSecs){
+  const diagM = area.type==="world" ? 14916862 /* GeoGuessr's world-scale constant */
+    : area.type==="circle" ? 2*area.radiusM
+    : google.maps.geometry.spherical.computeDistanceBetween(
+        new google.maps.LatLng(area.sw[0],area.sw[1]), new google.maps.LatLng(area.ne[0],area.ne[1]));
+  game={ city, area, roundsTotal:rounds, timerSecs, diagM:Math.max(diagM,2000),
+         roundIdx:0, results:[], usedIds:new Set(), timerId:null, timeLeft:0 };
+  $("roundtotal").textContent=rounds;
+  $("runscore").textContent="0";
+  show("game");
+  startRound();
+}
+async function startRound(){
+  const g=game;
+  $("result").classList.remove("show");
+  $("roundnum").textContent=g.roundIdx+1;
+  $("loadtitle").textContent=g.city.world ? "Flying somewhere in the world…" : "Finding a spot in "+g.city.name+"…";
+  $("loadsub").textContent="Scanning for Street View coverage.";
+  $("loading").style.display="flex";
+  guessLatLng=null;
+  $("guessbtn").disabled=true;
+  $("guessbtn").textContent="Place your pin on the map";
+  stopTimer();
+  let data;
+  try{
+    data=await findStreetViewSpot(g.area, g.usedIds);
+  }catch(e){
+    $("loading").style.display="none";
+    banner("Couldn't find Street View coverage in "+g.city.name+". Try a different city.", 10000);
+    show("home");
+    return;
+  }
+  g.actual=data.location.latLng;
+  g.startPanoId=data.location.pano;
+  g.place = g.city.world ? (g.area.lastPlace||null) : null;
+
+  if(!panorama){
+    panorama=new google.maps.StreetViewPanorama($("pano"),{
+      addressControl:false, showRoadLabels:false, fullscreenControl:false,
+      motionTracking:false, motionTrackingControl:false, enableCloseButton:false,
+      zoomControl:true, linksControl:true, clickToGo:true
+    });
+  }
+  panorama.setPano(g.startPanoId);
+  panorama.setPov({heading:Math.random()*360, pitch:0});
+  panorama.setZoom(0);
+
+  if(!guessMap){
+    guessMap=new google.maps.Map($("guessmap"),{
+      disableDefaultUI:true, zoomControl:true, clickableIcons:false,
+      gestureHandling:"greedy", backgroundColor:"#f1e9d6"
+    });
+    guessMap.addListener("click",ev=>{
+      guessLatLng=ev.latLng;
+      if(!guessMarker){ guessMarker=new google.maps.Marker({map:guessMap, position:ev.latLng}); }
+      else guessMarker.setPosition(ev.latLng);
+      $("guessbtn").disabled=false;
+      $("guessbtn").textContent="Guess";
+    });
+  }
+  if(guessMarker){ guessMarker.setMap(null); guessMarker=null; }
+  guessMap.fitBounds(areaBounds(g.area), 10);
+
+  $("loading").style.display="none";
+  if(g.timerSecs>0) startTimer(g.timerSecs); else $("timerwrap").hidden=true;
+}
+function startTimer(secs){
+  const g=game;
+  g.timeLeft=secs;
+  $("timerwrap").hidden=false;
+  renderTimer();
+  g.timerId=setInterval(()=>{
+    g.timeLeft--;
+    renderTimer();
+    if(g.timeLeft<=0){ stopTimer(); submitGuess(true); }
+  },1000);
+}
+function renderTimer(){
+  const t=game.timeLeft, el=$("timer");
+  el.textContent=Math.floor(t/60)+":"+String(t%60).padStart(2,"0");
+  el.classList.toggle("low", t<=15);
+}
+function stopTimer(){ if(game&&game.timerId){ clearInterval(game.timerId); game.timerId=null; } }
+
+function scoreFor(distM){
+  // GeoGuessr-style exponential decay scaled to the city's size
+  if(distM<25) return 5000;
+  return Math.round(5000*Math.exp(-10*distM/game.diagM));
+}
+function submitGuess(timedOut){
+  const g=game;
+  stopTimer();
+  let distM=null, pts=0;
+  if(guessLatLng){
+    distM=google.maps.geometry.spherical.computeDistanceBetween(guessLatLng,g.actual);
+    pts=scoreFor(distM);
+  }
+  g.results.push({actual:g.actual, guess:guessLatLng, distM, pts, place:g.place});
+  const total=g.results.reduce((s,r)=>s+r.pts,0);
+  $("runscore").textContent=fmtPts(total);
+
+  $("resulttitle").textContent="Round "+(g.roundIdx+1)+" – "
+    +(timedOut&&!guessLatLng ? "time's up!" : (pts>=4500?"spot on!":pts>=2500?"close!":pts>=800?"not bad":"way off"));
+  $("resultdist").textContent = (guessLatLng ? fmtKm(distM)+" from the actual spot"
+    : "No pin placed – 0 points this round.")+(g.place ? " · it was "+g.place : "");
+  $("resultpts").textContent="+"+fmtPts(pts)+" pts";
+  $("scorefill").style.width="0%";
+
+  const rm=new google.maps.Map($("resultmap"),{disableDefaultUI:true, zoomControl:true, clickableIcons:false, backgroundColor:"#f1e9d6"});
+  const b=new google.maps.LatLngBounds();
+  new google.maps.Marker({map:rm, position:g.actual, label:{text:"★", color:"#fff8ec"},
+    icon:{path:google.maps.SymbolPath.CIRCLE, scale:12, fillColor:"#d6482f", fillOpacity:1, strokeColor:"#2e2b25", strokeWeight:2}});
+  b.extend(g.actual);
+  if(guessLatLng){
+    new google.maps.Marker({map:rm, position:guessLatLng});
+    b.extend(guessLatLng);
+    new google.maps.Polyline({map:rm, path:[guessLatLng,g.actual], geodesic:true,
+      strokeOpacity:0, icons:[{icon:{path:"M 0,-1 0,1", strokeOpacity:1, strokeColor:"#2e2b25", scale:2}, offset:"0", repeat:"12px"}]});
+  }
+  rm.fitBounds(b, 60);
+
+  $("nextbtn").textContent = g.roundIdx+1>=g.roundsTotal ? "See final score" : "Next round";
+  $("result").classList.add("show");
+  requestAnimationFrame(()=>{ $("scorefill").style.width=(pts/50)+"%"; });
+}
+function nextRound(){
+  const g=game;
+  g.roundIdx++;
+  if(g.roundIdx>=g.roundsTotal){ showSummary(); return; }
+  startRound();
+}
+function showSummary(){
+  const g=game;
+  stopTimer();
+  $("result").classList.remove("show");
+  const total=g.results.reduce((s,r)=>s+r.pts,0);
+  const max=g.roundsTotal*5000;
+  $("sumtitle").textContent=g.city.name+" – final score";
+  $("sumtotal").textContent=fmtPts(total);
+  $("summax").textContent="/ "+fmtPts(max);
+  const list=$("roundlist");
+  list.innerHTML="";
+  g.results.forEach((r,i)=>{
+    const row=document.createElement("div");
+    row.className="roundrow";
+    row.innerHTML='<span class="r">Round '+(i+1)+(r.place?' · '+r.place:'')+'</span><span>'+(r.distM!=null?fmtKm(r.distM):"no pin")+'</span><span><b>'+fmtPts(r.pts)+'</b> pts</span>';
+    list.appendChild(row);
+  });
+  show("summary");
+  const sm=new google.maps.Map($("summarymap"),{disableDefaultUI:true, zoomControl:true, clickableIcons:false, backgroundColor:"#f1e9d6"});
+  const b=new google.maps.LatLngBounds();
+  g.results.forEach((r,i)=>{
+    new google.maps.Marker({map:sm, position:r.actual, label:{text:String(i+1), color:"#fff8ec", fontWeight:"700"},
+      icon:{path:google.maps.SymbolPath.CIRCLE, scale:12, fillColor:"#d6482f", fillOpacity:1, strokeColor:"#2e2b25", strokeWeight:2}});
+    b.extend(r.actual);
+    if(r.guess){
+      new google.maps.Marker({map:sm, position:r.guess, label:{text:String(i+1), color:"#fff", fontWeight:"700"}});
+      b.extend(r.guess);
+      new google.maps.Polyline({map:sm, path:[r.guess,r.actual], geodesic:true,
+        strokeOpacity:0, icons:[{icon:{path:"M 0,-1 0,1", strokeOpacity:1, strokeColor:"#6f685c", scale:1.5}, offset:"0", repeat:"12px"}]});
+    }
+  });
+  sm.fitBounds(b, 50);
+}
+
+/* ================= Wire-up ================= */
+buildCityGrid();
+refreshKeyUI();
+$("savekey").addEventListener("click",()=>{
+  const k=$("keyinput").value.trim();
+  if(!k){ banner("Paste a key first."); return; }
+  if(getKey() && k!==getKey() && mapsReady){
+    setKey(k); location.reload(); return; // maps script can't be swapped live
+  }
+  setKey(k);
+  refreshKeyUI();
+});
+$("searchbtn").addEventListener("click",searchCity);
+$("citysearch").addEventListener("keydown",e=>{ if(e.key==="Enter") searchCity(); });
+$("startbtn").addEventListener("click",async ()=>{
+  const rounds=parseInt($("roundsel").value,10);
+  const timer=parseInt($("timersel").value,10);
+  try{
+    $("startbtn").disabled=true;
+    await loadMaps();
+    startGame(selectedCity, currentArea(), rounds, timer);
+  }catch(e){
+    banner(e==="nokey" ? "Save a Google Maps API key first." : "Google Maps failed to load – check your internet connection and the key.");
+  }finally{
+    $("startbtn").disabled = !(getKey() && selectedCity);
+  }
+});
+$("guessbtn").addEventListener("click",()=>submitGuess(false));
+$("nextbtn").addEventListener("click",nextRound);
+$("returnstart").addEventListener("click",()=>{ if(game&&game.startPanoId&&panorama) panorama.setPano(game.startPanoId); });
+$("quitbtn").addEventListener("click",()=>{ stopTimer(); show("home"); });
+$("togglemap").addEventListener("click",()=>{
+  const big=$("guessbox").classList.toggle("big");
+  $("togglemap").textContent = big ? "Shrink map" : "Expand map";
+});
+$("againbtn").addEventListener("click",()=>{ startGame(game.city, game.area, game.roundsTotal, game.timerSecs); });
+$("homebtn").addEventListener("click",()=>show("home"));
+$("areasel").addEventListener("change",()=>{ $("radiuswrap").hidden = $("areasel").value!=="radius"; });
+</script>
+</body>
+</html>
