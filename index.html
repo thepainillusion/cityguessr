@@ -44,10 +44,10 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
 
 /* ---------- Home ---------- */
 #home .wrap{max-width:980px;margin:0 auto;padding:40px max(20px,env(safe-area-inset-right,0px)) 64px max(20px,env(safe-area-inset-left,0px))}
-.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;justify-content:center}
 .brand h1{font-size:clamp(3.2rem,8vw,4.6rem);font-weight:700;margin:0}
 .brand .pin{color:var(--accent)}
-.tagline{color:var(--pencil);margin:0 0 28px;max-width:52ch}
+.tagline{color:var(--pencil);margin:0 auto 28px;max-width:52ch;text-align:center}
 .keycard{background:var(--card);border:2px solid var(--ink);border-radius:255px 15px 225px 15px/15px 225px 15px 255px;padding:18px 22px;margin-bottom:28px;box-shadow:3px 4px 0 rgba(46,43,37,.18)}
 .keycard h2{margin:0 0 4px;font-size:1.6rem}
 .keycard p{margin:0 0 12px;color:var(--pencil);font-size:.95rem;max-width:70ch}
@@ -60,7 +60,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
 .btn-primary:disabled{opacity:.45;cursor:not-allowed}
 .keystatus{font-size:.88rem;margin-top:10px;color:var(--pencil)}
 .keystatus .ok{color:var(--good)} .keystatus .err{color:var(--bad)}
-.sectionlabel{font-family:"Caveat",cursive;font-weight:700;font-size:1.45rem;color:var(--ink);margin:26px 0 12px;display:inline-block;border-bottom:3px dashed var(--line);padding-bottom:2px;display:block}
+.sectionlabel{font-family:"Caveat",cursive;font-weight:700;font-size:1.45rem;color:var(--ink);margin:26px auto 12px;display:block;width:fit-content;border-bottom:3px dashed var(--line);padding:0 18px 2px;text-align:center}
 .citygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
 .citycard{background:var(--card);padding:12px 14px;text-align:left;display:flex;flex-direction:column;gap:0}
 .citycard:nth-child(odd){transform:rotate(-.6deg)}
@@ -69,12 +69,12 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
 .citycard.selected{background:var(--hilite);border-color:var(--accent)}
 .citycard .cname{font-family:"Caveat",cursive;font-weight:700;font-size:1.45rem;line-height:1.1}
 .citycard .ccountry{font-size:.88rem;color:var(--pencil)}
-.searchrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.searchrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;max-width:640px;margin:0 auto}
 .searchrow input{flex:1;min-width:220px}
-.searchresult{margin-top:8px;font-size:.95rem;color:var(--pencil)}
-.settings{display:flex;gap:22px;flex-wrap:wrap;margin-top:6px}
-.setting label{display:block;font-size:.9rem;color:var(--pencil);margin-bottom:5px}
-.startbar{margin-top:34px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.searchresult{margin-top:8px;font-size:.95rem;color:var(--pencil);text-align:center}
+.settings{display:flex;gap:22px;flex-wrap:wrap;margin-top:6px;justify-content:center}
+.setting label{display:block;font-size:.9rem;color:var(--pencil);margin-bottom:5px;text-align:center}
+.startbar{margin-top:34px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:center}
 .startbar .picked{color:var(--pencil)}
 .startbar .picked b{color:var(--ink)}
 .bigstart{font-size:1.25rem;padding:14px 34px}
@@ -424,6 +424,7 @@ function loadMaps(){
 
 /* ================= Home screen ================= */
 function refreshKeyUI(){
+  if(EMBEDDED_KEY){ $("keycard").hidden=true; updateStartBtn(); return; }
   const key=getKey();
   if(key){
     $("keyinput").value=key;
