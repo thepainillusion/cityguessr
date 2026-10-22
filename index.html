@@ -24,6 +24,7 @@
   color-scheme:light;
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{height:100%}
 body{
   margin:0;color:var(--ink);
@@ -122,7 +123,8 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
 .scoreline .pts{font-family:"Caveat",cursive;font-weight:700;font-size:2rem;color:var(--accent)}
 .scorebar{height:12px;background:var(--paper-2);border:2px solid var(--ink);border-radius:6px;overflow:hidden}
 .scorebar i{display:block;height:100%;background:var(--accent);transition:width .6s ease}
-.resultactions{display:flex;justify-content:flex-end}
+.resultactions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+#backtoresults{position:absolute;top:74px;left:50%;transform:translateX(-50%);z-index:6}
 
 /* ---------- Summary ---------- */
 #summary{padding:28px max(20px,env(safe-area-inset-right,0px)) 48px max(20px,env(safe-area-inset-left,0px));max-width:860px;margin:0 auto;width:100%;gap:18px}
@@ -209,7 +211,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
       <div class="keystatus" id="keystatus">No key saved yet.</div>
     </div>
 
-    <div class="sectionlabel">Featured cities</div>
+    <div class="sectionlabel">Select city</div>
     <div class="citygrid" id="citygrid"></div>
 
     <div class="sectionlabel">Or search any city</div>
@@ -232,6 +234,18 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
       <div class="setting">
         <label for="areasel">Play area</label>
         <select id="areasel" disabled><option>Choose a city first</option></select>
+      </div>
+      <div class="setting" id="sizewrap" hidden>
+        <label for="sizesel">Lobby size</label>
+        <select id="sizesel">
+          <option value="2">2 players</option>
+          <option value="3">3 players</option>
+          <option value="4" selected>4 players</option>
+          <option value="5">5 players</option>
+          <option value="6">6 players</option>
+          <option value="8">8 players</option>
+          <option value="10">10 players</option>
+        </select>
       </div>
       <div class="setting" id="radiuswrap" hidden>
         <label for="radiussel">Radius from centre</label>
@@ -282,6 +296,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
     <h2 id="loadtitle" class="display">Finding a spot&hellip;</h2>
     <p id="loadsub"></p>
   </div>
+  <button class="hudbtn" id="backtoresults" hidden>&larr; Back to results</button>
   <div id="result">
     <div class="resultcard">
       <h2 id="resulttitle">Round 1 result</h2>
@@ -289,7 +304,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
       <div class="scoreline"><span class="dist" id="resultdist"></span><span class="pts" id="resultpts"></span></div>
       <div class="scorebar"><i id="scorefill" style="width:0%"></i></div>
       <div class="roundlist" id="mproundlist" hidden></div>
-      <div class="resultactions"><span id="mpnext" hidden></span><button class="btn btn-primary" id="nextbtn">Next round</button></div>
+      <div class="resultactions"><button class="btn" id="reviewbtn">Explore the spot</button><span id="mpnext" hidden></span><button class="btn btn-primary" id="nextbtn">Next round</button></div>
     </div>
   </div>
 </section>
@@ -696,6 +711,7 @@ function ensurePanoAndMap(){
 async function startRound(){
   const g=game;
   $("result").classList.remove("show");
+  $("backtoresults").hidden=true; $("guessbox").hidden=false;
   $("roundnum").textContent=g.roundIdx+1;
   $("loadtitle").textContent=g.city.world ? "Flying somewhere in the world…" : "Finding a spot in "+g.city.name+"…";
   $("loadsub").textContent="Scanning for Street View coverage.";
@@ -796,6 +812,7 @@ function showSummary(){
   const g=game;
   stopTimer();
   $("result").classList.remove("show");
+  $("backtoresults").hidden=true; $("guessbox").hidden=false;
   const total=g.results.reduce((s,r)=>s+r.pts,0);
   const max=g.roundsTotal*5000;
   $("sumtitle").textContent=g.city.name+" – final score";
@@ -869,6 +886,7 @@ function setView(v){
   $("joincode").hidden = $("joinbtn").hidden = v!=="join";
   $("namecardtitle").textContent = v==="join" ? "Join a friend's lobby" : "Your nickname";
   $("cityblock").hidden = !(v==="sp"||v==="create");
+  $("sizewrap").hidden = v!=="create";
   $("backrow").hidden = v==="entry";
   $("viewtitle").textContent = ({sp:"Single player", mpchoice:"Multiplayer",
     create:"Create a lobby – pick a city and settings", join:"Join a lobby"})[v]||"";
@@ -898,7 +916,8 @@ async function createLobby(){
     const code=codeGen();
     await db.ref("lobbies/"+code).set({
       created:firebase.database.ServerValue.TIMESTAMP, host:PID, status:"waiting", roundIdx:0,
-      config:{cityName:selectedCity.name, world:selectedCity.world||false, area:area, rounds:rounds, timerSecs:timer},
+      config:{cityName:selectedCity.name, world:selectedCity.world||false, area:area, rounds:rounds, timerSecs:timer,
+              maxPlayers:parseInt($("sizesel").value,10)||4},
       locations:locs,
       players:{[PID]:{name:mpName(), online:true, total:0}}
     });
@@ -918,6 +937,8 @@ async function joinLobby(){
     const snap=await db.ref("lobbies/"+code).get();
     if(!snap.exists()){ out.textContent="No lobby with that code."; return; }
     if(snap.val().status!=="waiting"){ out.textContent="That game has already started."; return; }
+    const cap=(snap.val().config&&snap.val().config.maxPlayers)||99;
+    if(Object.keys(snap.val().players||{}).length>=cap){ out.textContent="That lobby is full ("+cap+" players max)."; return; }
     await db.ref("lobbies/"+code+"/players/"+PID).set({name:mpName(), online:true, total:0});
     out.textContent="";
     enterLobby(code, snap.val().host===PID);
@@ -954,6 +975,7 @@ function leaveLobby(msg){
   $("mpprogress").hidden=true; $("mpnext").hidden=true; $("nextbtn").hidden=false;
   $("mproundlist").hidden=true; $("standings").hidden=true; $("againbtn").hidden=false;
   $("result").classList.remove("show");
+  $("backtoresults").hidden=true; $("guessbox").hidden=false;
   show("home");
   setView("entry");
   if(msg) banner(msg);
@@ -972,7 +994,8 @@ function mpSync(){
 }
 function renderLobbyScreen(){
   const L=mp.lobby, c=L.config;
-  $("lobbyconfig").textContent=c.cityName+(c.area&&c.area.desc?" · "+c.area.desc:"")+" · "+c.rounds+" rounds · "+(c.timerSecs/60)+" min per round";
+  const n=Object.keys(L.players||{}).length;
+  $("lobbyconfig").textContent=c.cityName+(c.area&&c.area.desc?" · "+c.area.desc:"")+" · "+c.rounds+" rounds · "+(c.timerSecs/60)+" min per round"+(c.maxPlayers?" · "+n+"/"+c.maxPlayers+" players":"");
   const list=$("playerlist"); list.innerHTML="";
   Object.entries(L.players||{}).forEach(([pid,p])=>{
     const row=document.createElement("div"); row.className="roundrow";
@@ -1002,6 +1025,7 @@ function beginMpRound(){
   mp.overAt=null;
   if(mp.cdTimer){ clearInterval(mp.cdTimer); mp.cdTimer=null; }
   $("result").classList.remove("show");
+  $("backtoresults").hidden=true; $("guessbox").hidden=false;
   $("roundnum").textContent=idx+1;
   guessLatLng=null;
   $("guessbtn").disabled=true;
@@ -1139,6 +1163,7 @@ function showMpSummary(){
   if(mp.cdTimer){ clearInterval(mp.cdTimer); mp.cdTimer=null; }
   stopTimer();
   $("result").classList.remove("show");
+  $("backtoresults").hidden=true; $("guessbox").hidden=false;
   const L=mp.lobby, max=L.config.rounds*5000;
   const rows=Object.entries(L.players||{}).map(([pid,p])=>({name:p.name, me:pid===PID, total:p.total||0}))
     .sort((a,z)=>z.total-a.total);
@@ -1203,6 +1228,18 @@ $("startbtn").addEventListener("click",async ()=>{
   }
 });
 $("guessbtn").addEventListener("click",()=>{ if(game&&game.mp) submitMpGuess(false); else submitGuess(false); });
+$("reviewbtn").addEventListener("click",()=>{
+  // drop back onto the street at the actual spot, with the result card tucked away
+  $("result").classList.remove("show");
+  $("guessbox").hidden=true;
+  $("backtoresults").hidden=false;
+  if(game&&game.startPanoId&&panorama) panorama.setPano(game.startPanoId);
+});
+$("backtoresults").addEventListener("click",()=>{
+  $("backtoresults").hidden=true;
+  $("guessbox").hidden=false;
+  $("result").classList.add("show");
+});
 $("nextbtn").addEventListener("click",nextRound);
 $("returnstart").addEventListener("click",()=>{ if(game&&game.startPanoId&&panorama) panorama.setPano(game.startPanoId); });
 $("quitbtn").addEventListener("click",()=>{ if(game&&game.mp){ leaveLobby(); } else { stopTimer(); show("home"); setView("entry"); } });
