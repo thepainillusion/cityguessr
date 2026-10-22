@@ -137,9 +137,12 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
 .histnote{text-align:center;color:var(--pencil);font-size:.92rem;margin:0 0 12px}
 .histactions{text-align:center;margin-top:12px}
 #bestnote{font-family:"Caveat",cursive;font-weight:700;font-size:1.6rem;color:var(--accent);transform:rotate(-1.5deg)}
-.modetabs{display:flex;gap:12px;justify-content:center;margin:0 0 26px}
-.modetab{padding:10px 28px;font-family:"Caveat",cursive;font-weight:700;font-size:1.35rem}
-.modetab.active{background:var(--hilite);border-color:var(--accent)}
+.bigmodes{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin:6px 0 26px}
+.bigmode{flex:1;min-width:220px;max-width:320px;padding:28px 20px;display:flex;flex-direction:column;gap:6px;align-items:center;
+  font-family:"Caveat",cursive;font-weight:700;font-size:1.9rem;line-height:1.1}
+.bigmode span{font-family:"Patrick Hand",cursive;font-weight:400;font-size:1rem;color:var(--pencil)}
+.bigmode:hover{border-color:var(--accent);background:var(--hilite)}
+#backrow{display:flex;align-items:center;gap:14px;justify-content:center;margin:0 0 20px}
 #lobby{padding:40px max(20px,env(safe-area-inset-right,0px)) 64px max(20px,env(safe-area-inset-left,0px));max-width:860px;margin:0 auto;width:100%}
 #lobby.active{display:flex;flex-direction:column;gap:18px}
 #lobbycode{color:var(--accent);letter-spacing:.14em}
@@ -162,24 +165,39 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
     <div class="brand"><h1><span class="pin">&#9679;</span> CityGuessr</h1></div>
     <p class="tagline">Pick a city. Get dropped on a random street. Walk, look around, then pin where you think you are. Closer pins score more &ndash; 5,000 points max per round.</p>
 
-    <div class="modetabs">
-      <button id="modesp" class="modetab active">Single player</button>
-      <button id="modemp" class="modetab">Multiplayer</button>
+    <div id="backrow" hidden>
+      <button class="btn" id="backbtn">&larr; Back</button>
+      <span class="picked" id="viewtitle"></span>
     </div>
 
-    <div id="mpsetup" hidden>
-      <div class="keycard">
-        <h2>Play with friends, live</h2>
-        <p>Everyone gets the same spots. Join a friend's lobby with their code, or host: pick a city and settings below, then hit &ldquo;Create lobby&rdquo; and share the code you get.</p>
-        <p id="mpunavail" class="histnote" style="text-align:left" hidden>Multiplayer isn't switched on yet &ndash; it needs a free Firebase config pasted into this file.</p>
+    <div id="entryview">
+      <div class="bigmodes">
+        <button class="bigmode" id="gosp">&#127919; Single player<span>Classic &ndash; you against the map</span></button>
+        <button class="bigmode" id="gomp">&#128101; Multiplayer<span>Live lobbies with friends</span></button>
+      </div>
+    </div>
+
+    <div id="mpchoiceview" hidden>
+      <p id="mpunavail" class="histnote" hidden>Multiplayer isn't switched on yet &ndash; it needs a free Firebase config pasted into this file.</p>
+      <div class="bigmodes">
+        <button class="bigmode" id="gocreate">Create lobby<span>Host a game and get a code to share</span></button>
+        <button class="bigmode" id="gojoin">Join lobby<span>Enter a friend's code</span></button>
+      </div>
+    </div>
+
+    <div id="namecard" hidden>
+      <div class="keycard" style="max-width:560px;margin:0 auto 24px">
+        <h2 id="namecardtitle">Your nickname</h2>
         <div class="keyrow">
           <input id="mpname" maxlength="16" autocomplete="off" placeholder="Your nickname">
-          <input id="joincode" maxlength="5" autocomplete="off" placeholder="CODE" style="text-transform:uppercase;max-width:120px">
-          <button class="btn" id="joinbtn">Join lobby</button>
+          <input id="joincode" maxlength="5" autocomplete="off" placeholder="CODE" style="text-transform:uppercase;max-width:120px" hidden>
+          <button class="btn btn-primary" id="joinbtn" hidden>Join lobby</button>
         </div>
         <div class="keystatus" id="mpstatus"></div>
       </div>
     </div>
+
+    <div id="cityblock" hidden>
 
     <div class="keycard" id="keycard">
       <h2>Google Maps API key</h2>
@@ -231,6 +249,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
       <button class="btn btn-primary bigstart" id="startbtn" disabled>Start game</button>
       <span class="picked" id="pickedlabel">Choose a city to begin.</span>
     </div>
+    </div><!-- /cityblock -->
 
     <div id="historysec" hidden>
       <div class="sectionlabel">Your past games</div>
@@ -410,7 +429,7 @@ function saveHist(h){ try{ localStorage.setItem(LS_HIST, JSON.stringify(h.slice(
 function histKey(e){ return e.city+"|"+(e.area||"")+"|"+e.rounds; }
 function renderHistory(){
   const h=loadHist();
-  $("historysec").hidden = h.length===0;
+  $("historysec").hidden = h.length===0 || (typeof view!=="undefined" && view!=="entry");
   if(!h.length) return;
   const best={};
   h.forEach(e=>{ const k=histKey(e); if(best[k]===undefined||e.score>best[k]) best[k]=e.score; });
@@ -839,12 +858,22 @@ function initFirebase(){
 function nowSrv(){ return Date.now()+serverOffset; }
 function mpName(){ const n=$("mpname").value.trim().slice(0,16); return n||("Player "+PID.slice(0,4).toUpperCase()); }
 function codeGen(){ const A="ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s=""; for(let i=0;i<5;i++) s+=A[Math.floor(Math.random()*A.length)]; return s; }
-function setMode(m){
-  mode=m;
-  $("modesp").classList.toggle("active",m==="sp");
-  $("modemp").classList.toggle("active",m==="mp");
-  $("mpsetup").hidden = m!=="mp";
-  $("mpunavail").hidden = mpAvailable();
+let view="entry";
+function setView(v){
+  view=v;
+  mode = v==="create" ? "mp" : "sp";
+  $("entryview").hidden = v!=="entry";
+  $("mpchoiceview").hidden = v!=="mpchoice";
+  if(v==="mpchoice") $("mpunavail").hidden=mpAvailable();
+  $("namecard").hidden = !(v==="create"||v==="join");
+  $("joincode").hidden = $("joinbtn").hidden = v!=="join";
+  $("namecardtitle").textContent = v==="join" ? "Join a friend's lobby" : "Your nickname";
+  $("cityblock").hidden = !(v==="sp"||v==="create");
+  $("backrow").hidden = v==="entry";
+  $("viewtitle").textContent = ({sp:"Single player", mpchoice:"Multiplayer",
+    create:"Create a lobby – pick a city and settings", join:"Join a lobby"})[v]||"";
+  $("mpstatus").textContent="";
+  renderHistory();
   updateStartBtn();
 }
 async function createLobby(){
@@ -925,8 +954,8 @@ function leaveLobby(msg){
   $("mpprogress").hidden=true; $("mpnext").hidden=true; $("nextbtn").hidden=false;
   $("mproundlist").hidden=true; $("standings").hidden=true; $("againbtn").hidden=false;
   $("result").classList.remove("show");
-  renderHistory();
   show("home");
+  setView("entry");
   if(msg) banner(msg);
 }
 function mpSync(){
@@ -1176,15 +1205,18 @@ $("startbtn").addEventListener("click",async ()=>{
 $("guessbtn").addEventListener("click",()=>{ if(game&&game.mp) submitMpGuess(false); else submitGuess(false); });
 $("nextbtn").addEventListener("click",nextRound);
 $("returnstart").addEventListener("click",()=>{ if(game&&game.startPanoId&&panorama) panorama.setPano(game.startPanoId); });
-$("quitbtn").addEventListener("click",()=>{ if(game&&game.mp){ leaveLobby(); } else { stopTimer(); show("home"); } });
+$("quitbtn").addEventListener("click",()=>{ if(game&&game.mp){ leaveLobby(); } else { stopTimer(); show("home"); setView("entry"); } });
 $("togglemap").addEventListener("click",()=>{
   const big=$("guessbox").classList.toggle("big");
   $("togglemap").textContent = big ? "Shrink map" : "Expand map";
 });
 $("againbtn").addEventListener("click",()=>{ startGame(game.city, game.area, game.roundsTotal, game.timerSecs); });
-$("homebtn").addEventListener("click",()=>{ if(mp){ leaveLobby(); } else { renderHistory(); show("home"); } });
-$("modesp").addEventListener("click",()=>setMode("sp"));
-$("modemp").addEventListener("click",()=>setMode("mp"));
+$("homebtn").addEventListener("click",()=>{ if(mp){ leaveLobby(); } else { show("home"); setView("entry"); } });
+$("gosp").addEventListener("click",()=>setView("sp"));
+$("gomp").addEventListener("click",()=>setView("mpchoice"));
+$("gocreate").addEventListener("click",()=>setView("create"));
+$("gojoin").addEventListener("click",()=>setView("join"));
+$("backbtn").addEventListener("click",()=>setView(view==="create"||view==="join" ? "mpchoice" : "entry"));
 $("joinbtn").addEventListener("click",joinLobby);
 $("joincode").addEventListener("keydown",e=>{ if(e.key==="Enter") joinLobby(); });
 $("lobbystart").addEventListener("click",()=>{
@@ -1193,6 +1225,7 @@ $("lobbystart").addEventListener("click",()=>{
 $("lobbyleave").addEventListener("click",()=>leaveLobby());
 try{ $("mpname").value=localStorage.getItem("cg_name")||""; }catch(e){}
 $("mpname").addEventListener("input",()=>{ try{ localStorage.setItem("cg_name",$("mpname").value); }catch(e){} });
+setView("entry");
 $("areasel").addEventListener("change",()=>{ $("radiuswrap").hidden = $("areasel").value!=="radius"; });
 renderHistory();
 $("clearhist").addEventListener("click",()=>{
