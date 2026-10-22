@@ -247,6 +247,15 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
           <option value="10">10 players</option>
         </select>
       </div>
+      <div class="setting" id="afterfirstwrap" hidden>
+        <label for="afterfirstsel">After first pin, others get</label>
+        <select id="afterfirstsel">
+          <option value="0" selected>Full time</option>
+          <option value="15">15 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+        </select>
+      </div>
       <div class="setting" id="radiuswrap" hidden>
         <label for="radiussel">Radius from centre</label>
         <select id="radiussel">
@@ -318,6 +327,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
     <div class="roundlist" id="playerlist"></div>
   </div>
   <div class="startbar" style="margin-top:10px">
+    <button class="btn btn-primary bigstart" id="readybtn" hidden>I'm ready</button>
     <button class="btn btn-primary bigstart" id="lobbystart" hidden>Start game</button>
     <span class="picked" id="lobbywait">Waiting for the host to start&hellip;</span>
     <button class="btn" id="lobbyleave">Leave lobby</button>
@@ -335,6 +345,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
   <div class="summaryactions">
     <button class="btn btn-primary" id="againbtn">Play this city again</button>
     <button class="btn" id="homebtn">Choose another city</button>
+    <span class="picked" id="againstatus" hidden></span>
   </div>
 </section>
 
@@ -818,6 +829,9 @@ function showSummary(){
   $("sumtitle").textContent=g.city.name+" – final score";
   $("sumtotal").textContent=fmtPts(total);
   $("summax").textContent="/ "+fmtPts(max);
+  $("againbtn").hidden=false; $("againbtn").disabled=false; $("againbtn").textContent="Play this city again";
+  $("homebtn").textContent="Choose another city";
+  $("againstatus").hidden=true;
   const hist=loadHist();
   const key=g.city.name+"|"+(g.area.desc||"")+"|"+g.roundsTotal;
   const prevBest=hist.filter(e=>histKey(e)===key).reduce((m,e)=>Math.max(m,e.score),-1);
@@ -887,6 +901,7 @@ function setView(v){
   $("namecardtitle").textContent = v==="join" ? "Join a friend's lobby" : "Your nickname";
   $("cityblock").hidden = !(v==="sp"||v==="create");
   $("sizewrap").hidden = v!=="create";
+  $("afterfirstwrap").hidden = v!=="create";
   $("backrow").hidden = v==="entry";
   $("viewtitle").textContent = ({sp:"Single player", mpchoice:"Multiplayer",
     create:"Create a lobby – pick a city and settings", join:"Join a lobby"})[v]||"";
@@ -915,9 +930,10 @@ async function createLobby(){
     }
     const code=codeGen();
     await db.ref("lobbies/"+code).set({
-      created:firebase.database.ServerValue.TIMESTAMP, host:PID, status:"waiting", roundIdx:0,
+      created:firebase.database.ServerValue.TIMESTAMP, host:PID, status:"waiting", roundIdx:0, gen:1,
       config:{cityName:selectedCity.name, world:selectedCity.world||false, area:area, rounds:rounds, timerSecs:timer,
-              maxPlayers:parseInt($("sizesel").value,10)||4},
+              maxPlayers:parseInt($("sizesel").value,10)||4,
+              afterFirst:parseInt($("afterfirstsel").value,10)||0},
       locations:locs,
       players:{[PID]:{name:mpName(), online:true, total:0}}
     });
@@ -939,13 +955,13 @@ async function joinLobby(){
     if(snap.val().status!=="waiting"){ out.textContent="That game has already started."; return; }
     const cap=(snap.val().config&&snap.val().config.maxPlayers)||99;
     if(Object.keys(snap.val().players||{}).length>=cap){ out.textContent="That lobby is full ("+cap+" players max)."; return; }
-    await db.ref("lobbies/"+code+"/players/"+PID).set({name:mpName(), online:true, total:0});
+    await db.ref("lobbies/"+code+"/players/"+PID).set({name:mpName(), online:true, total:0, lobbyReady:false});
     out.textContent="";
     enterLobby(code, snap.val().host===PID);
   }catch(e){ out.textContent="Join failed ("+e+")."; }
 }
 function enterLobby(code,isHost){
-  mp={code, isHost, ref:db.ref("lobbies/"+code), lobby:null, overAt:null, shownRound:-1, submitted:-1, cdTimer:null, summaryShown:false};
+  mp={code, isHost, ref:db.ref("lobbies/"+code), lobby:null, overAt:null, shownRound:-1, submitted:-1, cdTimer:null, summaryShown:false, gen:0, restarting:false};
   mp.ref.child("players/"+PID+"/online").onDisconnect().set(false);
   $("lobbycode").textContent=code;
   show("lobby");
@@ -973,7 +989,10 @@ function leaveLobby(msg){
   stopTimer();
   if(game&&game.mp) game=null;
   $("mpprogress").hidden=true; $("mpnext").hidden=true; $("nextbtn").hidden=false;
-  $("mproundlist").hidden=true; $("standings").hidden=true; $("againbtn").hidden=false;
+  $("mproundlist").hidden=true; $("standings").hidden=true;
+  $("againbtn").hidden=false; $("againbtn").disabled=false; $("againbtn").textContent="Play this city again";
+  $("homebtn").textContent="Choose another city";
+  $("againstatus").hidden=true;
   $("result").classList.remove("show");
   $("backtoresults").hidden=true; $("guessbox").hidden=false;
   show("home");
@@ -984,7 +1003,7 @@ function mpSync(){
   const L=mp.lobby;
   if(L.status==="waiting"){ renderLobbyScreen(); return; }
   if(L.status==="playing"){
-    if(!game || !game.mp) startMpGame();
+    if(!game || !game.mp || mp.gen!==(L.gen||1)) startMpGame();
     if(L.roundIdx!==game.roundIdx) beginMpRound();
     updateMpHud();
     maybeEndMpRound();
@@ -995,15 +1014,36 @@ function mpSync(){
 function renderLobbyScreen(){
   const L=mp.lobby, c=L.config;
   const n=Object.keys(L.players||{}).length;
-  $("lobbyconfig").textContent=c.cityName+(c.area&&c.area.desc?" · "+c.area.desc:"")+" · "+c.rounds+" rounds · "+(c.timerSecs/60)+" min per round"+(c.maxPlayers?" · "+n+"/"+c.maxPlayers+" players":"");
+  $("lobbyconfig").textContent=c.cityName+(c.area&&c.area.desc?" · "+c.area.desc:"")+" · "+c.rounds+" rounds · "+(c.timerSecs/60)+" min per round"+(c.maxPlayers?" · "+n+"/"+c.maxPlayers+" players":"")+(c.afterFirst?" · "+c.afterFirst+"s after first pin":"");
   const list=$("playerlist"); list.innerHTML="";
-  Object.entries(L.players||{}).forEach(([pid,p])=>{
+  const entries=Object.entries(L.players||{});
+  entries.forEach(([pid,p])=>{
     const row=document.createElement("div"); row.className="roundrow";
-    row.innerHTML='<span class="r">'+esc(p.name)+(pid===L.host?' · host':'')+(pid===PID?' (you)':'')+'</span><span>'+(p.online===false?'left':'ready')+'</span>';
+    const state = p.online===false ? "left"
+      : pid===L.host ? "host"
+      : p.lobbyReady ? "✓ ready" : "not ready yet";
+    row.innerHTML='<span class="r">'+esc(p.name)+(pid===PID?' (you)':'')+'</span><span>'+state+'</span>';
     list.appendChild(row);
   });
-  $("lobbystart").hidden=!mp.isHost;
-  $("lobbywait").hidden=mp.isHost;
+  const others=entries.filter(([pid,p])=>pid!==L.host && p.online!==false);
+  const readyCount=others.filter(([,p])=>p.lobbyReady).length;
+  if(mp.isHost){
+    $("readybtn").hidden=true;
+    $("lobbystart").hidden=false;
+    const allReady = readyCount===others.length;
+    $("lobbystart").disabled=!allReady;
+    $("lobbywait").textContent = others.length===0
+      ? "Start solo, or wait for friends to join."
+      : (allReady ? "Everyone's ready – go!" : readyCount+"/"+others.length+" players ready…");
+  } else {
+    $("lobbystart").hidden=true;
+    $("readybtn").hidden=false;
+    const me=(L.players||{})[PID];
+    const amReady=!!(me&&me.lobbyReady);
+    $("readybtn").textContent = amReady ? "✓ Ready (tap to unready)" : "I'm ready";
+    $("readybtn").classList.toggle("btn-primary", !amReady);
+    $("lobbywait").textContent = amReady ? "Waiting for the host to start…" : "Hit ready when you're set.";
+  }
 }
 function startMpGame(){
   const c=mp.lobby.config, a=c.area;
@@ -1012,7 +1052,7 @@ function startMpGame(){
         new google.maps.LatLng(a.sw[0],a.sw[1]), new google.maps.LatLng(a.ne[0],a.ne[1]));
   game={mp:true, city:{name:c.cityName, world:!!c.world}, area:a, roundsTotal:c.rounds, timerSecs:c.timerSecs,
         diagM:Math.max(diagM,2000), roundIdx:-1, results:[], timerId:null, timeLeft:0};
-  mp.shownRound=-1; mp.submitted=-1; mp.summaryShown=false;
+  mp.shownRound=-1; mp.submitted=-1; mp.summaryShown=false; mp.gen=mp.lobby.gen||1; mp.restarting=false;
   $("roundtotal").textContent=c.rounds;
   $("runscore").textContent="0";
   $("mpprogress").hidden=false;
@@ -1042,7 +1082,18 @@ function beginMpRound(){
   $("loading").style.display="none";
   startMpTimer();
 }
-function mpDeadline(){ return (mp.lobby.roundStart||0)+mp.lobby.config.timerSecs*1000; }
+function mpDeadline(){
+  const L=mp.lobby, idx=L.roundIdx;
+  let d=(L.roundStart||0)+L.config.timerSecs*1000;
+  const af=(L.config.afterFirst||0)*1000;
+  if(af){
+    // once the first pin lands, everyone else only has the short window left
+    let first=Infinity;
+    Object.values(L.players||{}).forEach(p=>{ const g=p.guesses&&p.guesses[idx]; if(g&&g.t&&g.t<first) first=g.t; });
+    if(first<Infinity && first+af<d) d=first+af;
+  }
+  return d;
+}
 function startMpTimer(){
   stopTimer();
   $("timerwrap").hidden=false;
@@ -1069,7 +1120,8 @@ function submitMpGuess(timedOut){
   }
   game.results[game.roundIdx]={actual:game.actual, guess:guessLatLng, distM, pts, place:game.place};
   const upd={};
-  upd["guesses/"+game.roundIdx]={lat:guessLatLng?guessLatLng.lat():null, lng:guessLatLng?guessLatLng.lng():null, dist:distM, pts:pts};
+  upd["guesses/"+game.roundIdx]={lat:guessLatLng?guessLatLng.lat():null, lng:guessLatLng?guessLatLng.lng():null, dist:distM, pts:pts,
+    t:firebase.database.ServerValue.TIMESTAMP};
   upd["total"]=firebase.database.ServerValue.increment(pts);
   mp.ref.child("players/"+PID).update(upd);
   $("guessbtn").disabled=true;
@@ -1158,7 +1210,8 @@ function showMpRoundResult(idx){
   requestAnimationFrame(()=>{ $("scorefill").style.width=(mine.pts/50)+"%"; });
 }
 function showMpSummary(){
-  if(!mp||mp.summaryShown) return;
+  if(!mp) return;
+  if(mp.summaryShown){ updateAgainStatus(); return; }
   mp.summaryShown=true;
   if(mp.cdTimer){ clearInterval(mp.cdTimer); mp.cdTimer=null; }
   stopTimer();
@@ -1172,7 +1225,10 @@ function showMpSummary(){
   $("sumtotal").textContent=fmtPts(mine?mine.total:0);
   $("summax").textContent="/ "+fmtPts(max)+(mine&&rows[0]&&rows[0].me&&rows.length>1?" · you won! 🏆":"");
   $("bestnote").hidden=true;
-  $("againbtn").hidden=true;
+  $("againbtn").hidden=false;
+  $("againbtn").disabled=false;
+  $("againbtn").textContent="Play again";
+  $("homebtn").textContent="Return to main menu";
   const st=$("standings"); st.hidden=false; st.innerHTML="";
   const medals=["🥇","🥈","🥉"];
   rows.forEach((r,i)=>{
@@ -1197,6 +1253,48 @@ function showMpSummary(){
     saveHist(hist);
   }
   show("summary");
+  updateAgainStatus();
+}
+function updateAgainStatus(){
+  if(!mp||!mp.lobby||mp.lobby.status!=="finished") return;
+  const L=mp.lobby;
+  const online=Object.entries(L.players||{}).filter(([,p])=>p.online!==false);
+  const ready=online.filter(([,p])=>p.again===true);
+  const st=$("againstatus");
+  st.hidden=false;
+  const mine=(L.players||{})[PID];
+  if(mine&&mine.again){ $("againbtn").disabled=true; $("againbtn").textContent="Ready!"; }
+  if(online.length>0 && ready.length===online.length){
+    st.textContent="Everyone's in – starting the next game…";
+    maybeRestartLobby(online.map(([pid])=>pid));
+  } else {
+    st.textContent=ready.length+"/"+online.length+" ready to play again";
+  }
+}
+async function maybeRestartLobby(onlinePids){
+  const L=mp.lobby;
+  // the host sets up the next game; if they've left, the first remaining player does
+  const leader=onlinePids.includes(L.host) ? L.host : onlinePids.slice().sort()[0];
+  if(leader!==PID || mp.restarting) return;
+  mp.restarting=true;
+  try{
+    const c=L.config, used=new Set(), locs=[];
+    for(let i=0;i<c.rounds;i++){
+      const d=await findStreetViewSpot(c.area,used);
+      locs.push({lat:d.location.latLng.lat(), lng:d.location.latLng.lng(), pano:d.location.pano, place:c.area.lastPlace||null});
+    }
+    if(!mp||!mp.lobby||mp.lobby.status!=="finished") return;
+    const upd={status:"playing", roundIdx:0, roundStart:firebase.database.ServerValue.TIMESTAMP,
+               locations:locs, gen:(L.gen||1)+1};
+    Object.keys(L.players||{}).forEach(pid=>{
+      upd["players/"+pid+"/guesses"]=null;
+      upd["players/"+pid+"/total"]=0;
+      upd["players/"+pid+"/again"]=null;
+      upd["players/"+pid+"/lobbyReady"]=null;
+    });
+    await mp.ref.update(upd);
+  }catch(e){ banner("Couldn't set up the next game ("+e+")."); }
+  finally{ if(mp) mp.restarting=false; }
 }
 
 /* ================= Wire-up ================= */
@@ -1247,7 +1345,10 @@ $("togglemap").addEventListener("click",()=>{
   const big=$("guessbox").classList.toggle("big");
   $("togglemap").textContent = big ? "Shrink map" : "Expand map";
 });
-$("againbtn").addEventListener("click",()=>{ startGame(game.city, game.area, game.roundsTotal, game.timerSecs); });
+$("againbtn").addEventListener("click",()=>{
+  if(mp){ mp.ref.child("players/"+PID+"/again").set(true); return; }
+  startGame(game.city, game.area, game.roundsTotal, game.timerSecs);
+});
 $("homebtn").addEventListener("click",()=>{ if(mp){ leaveLobby(); } else { show("home"); setView("entry"); } });
 $("gosp").addEventListener("click",()=>setView("sp"));
 $("gomp").addEventListener("click",()=>setView("mpchoice"));
@@ -1260,6 +1361,11 @@ $("lobbystart").addEventListener("click",()=>{
   if(mp&&mp.isHost) mp.ref.update({status:"playing", roundIdx:0, roundStart:firebase.database.ServerValue.TIMESTAMP});
 });
 $("lobbyleave").addEventListener("click",()=>leaveLobby());
+$("readybtn").addEventListener("click",()=>{
+  if(!mp||!mp.lobby) return;
+  const me=(mp.lobby.players||{})[PID]||{};
+  mp.ref.child("players/"+PID+"/lobbyReady").set(!me.lobbyReady);
+});
 try{ $("mpname").value=localStorage.getItem("cg_name")||""; }catch(e){}
 $("mpname").addEventListener("input",()=>{ try{ localStorage.setItem("cg_name",$("mpname").value); }catch(e){} });
 setView("entry");
