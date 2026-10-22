@@ -125,6 +125,23 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
 .scorebar i{display:block;height:100%;background:var(--accent);transition:width .6s ease}
 .resultactions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 #backtoresults{position:absolute;top:74px;left:50%;transform:translateX(-50%);z-index:6}
+#timer{display:inline-block}
+#timer.rush{color:var(--bad);animation:timerpulse 1s ease-in-out infinite}
+@keyframes timerpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
+#rushalert{position:absolute;top:36%;left:50%;transform:translate(-50%,-50%);z-index:8;pointer-events:none;
+  background:var(--bad);color:#fff8ec;border:3px solid var(--ink);
+  border-radius:255px 18px 225px 18px/18px 225px 18px 255px;
+  font-family:"Caveat",cursive;font-weight:700;font-size:clamp(1.6rem,4.5vw,2.4rem);
+  padding:16px 32px;box-shadow:4px 5px 0 rgba(46,43,37,.35);white-space:nowrap}
+#rushalert.go{animation:rushpop 1.9s ease forwards}
+@keyframes rushpop{
+  0%{transform:translate(-50%,-50%) scale(.3);opacity:0}
+  12%{transform:translate(-50%,-50%) scale(1.18);opacity:1}
+  22%{transform:translate(-50%,-50%) scale(1)}
+  68%{transform:translate(-50%,-50%) scale(1);opacity:1}
+  100%{transform:translate(-50%,-320%) scale(.35);opacity:0}
+}
+@media (prefers-reduced-motion:reduce){#rushalert.go{animation:none}#timer.rush{animation:none}}
 
 /* ---------- Summary ---------- */
 #summary{padding:28px max(20px,env(safe-area-inset-right,0px)) 48px max(20px,env(safe-area-inset-left,0px));max-width:860px;margin:0 auto;width:100%;gap:18px}
@@ -306,6 +323,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
     <p id="loadsub"></p>
   </div>
   <button class="hudbtn" id="backtoresults" hidden>&larr; Back to results</button>
+  <div id="rushalert" hidden>&#9889; <span id="rushtext"></span></div>
   <div id="result">
     <div class="resultcard">
       <h2 id="resulttitle">Round 1 result</h2>
@@ -330,6 +348,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
     <button class="btn btn-primary bigstart" id="readybtn" hidden>I'm ready</button>
     <button class="btn btn-primary bigstart" id="lobbystart" hidden>Start game</button>
     <span class="picked" id="lobbywait">Waiting for the host to start&hellip;</span>
+    <button class="btn" id="editlobbybtn" hidden>Edit settings</button>
     <button class="btn" id="lobbyleave">Leave lobby</button>
   </div>
 </section>
@@ -344,6 +363,7 @@ input,select{font:inherit;color:var(--ink);background:var(--card);border:2px sol
   <div class="roundlist" id="roundlist"></div>
   <div class="summaryactions">
     <button class="btn btn-primary" id="againbtn">Play this city again</button>
+    <button class="btn" id="tolobbybtn" hidden>Back to lobby</button>
     <button class="btn" id="homebtn">Choose another city</button>
     <span class="picked" id="againstatus" hidden></span>
   </div>
@@ -565,7 +585,8 @@ function refreshKeyUI(){
 }
 function updateStartBtn(){
   $("startbtn").disabled = !(getKey() && selectedCity);
-  $("startbtn").textContent = (typeof mode!=="undefined" && mode==="mp") ? "Create lobby" : "Start game";
+  $("startbtn").textContent = (typeof mp!=="undefined" && mp && mp.editing) ? "Update lobby"
+    : (typeof mode!=="undefined" && mode==="mp") ? "Create lobby" : "Start game";
   $("pickedlabel").innerHTML = selectedCity
     ? "Playing <b>"+esc(selectedCity.name)+"</b>"+(selectedCity.country?", "+esc(selectedCity.country):"")
     : (getKey() ? "Choose a city to begin." : "Save an API key, then choose a city.");
@@ -831,7 +852,7 @@ function showSummary(){
   $("summax").textContent="/ "+fmtPts(max);
   $("againbtn").hidden=false; $("againbtn").disabled=false; $("againbtn").textContent="Play this city again";
   $("homebtn").textContent="Choose another city";
-  $("againstatus").hidden=true;
+  $("againstatus").hidden=true; $("tolobbybtn").hidden=true;
   const hist=loadHist();
   const key=g.city.name+"|"+(g.area.desc||"")+"|"+g.roundsTotal;
   const prevBest=hist.filter(e=>histKey(e)===key).reduce((m,e)=>Math.max(m,e.score),-1);
@@ -915,32 +936,38 @@ async function createLobby(){
   try{
     $("startbtn").disabled=true;
     await loadMaps(); initFirebase();
-    const rounds=parseInt($("roundsel").value,10);
-    const timer=parseInt($("timersel").value,10)||120; // multiplayer is always timed
-    const area=currentArea();
-    show("game");
-    $("result").classList.remove("show");
-    $("loading").style.display="flex";
-    $("loadtitle").textContent="Setting up the lobby…";
-    $("loadsub").textContent="Finding "+rounds+" spots in "+selectedCity.name+" for everyone to play.";
-    const used=new Set(), locs=[];
-    for(let i=0;i<rounds;i++){
-      const d=await findStreetViewSpot(area,used);
-      locs.push({lat:d.location.latLng.lat(), lng:d.location.latLng.lng(), pano:d.location.pano, place:area.lastPlace||null});
-    }
     const code=codeGen();
+    // locations are found when the host starts, so settings can still change in the lobby
     await db.ref("lobbies/"+code).set({
       created:firebase.database.ServerValue.TIMESTAMP, host:PID, status:"waiting", roundIdx:0, gen:1,
-      config:{cityName:selectedCity.name, world:selectedCity.world||false, area:area, rounds:rounds, timerSecs:timer,
-              maxPlayers:parseInt($("sizesel").value,10)||4,
-              afterFirst:parseInt($("afterfirstsel").value,10)||0},
-      locations:locs,
+      config:lobbyConfigFromForm(),
       players:{[PID]:{name:mpName(), online:true, total:0}}
     });
     enterLobby(code,true);
   }catch(e){
     show("home"); banner("Couldn't create the lobby ("+e+").");
   }finally{ updateStartBtn(); }
+}
+function lobbyConfigFromForm(){
+  return {cityName:selectedCity.name, world:selectedCity.world||false, area:currentArea(),
+    rounds:parseInt($("roundsel").value,10),
+    timerSecs:parseInt($("timersel").value,10)||120, // multiplayer is always timed
+    maxPlayers:parseInt($("sizesel").value,10)||4,
+    afterFirst:parseInt($("afterfirstsel").value,10)||0};
+}
+async function updateLobbySettings(){
+  if(!mp) return;
+  if(!selectedCity){ banner("Pick a city first, then hit “Update lobby”."); return; }
+  try{
+    $("startbtn").disabled=true;
+    await loadMaps();
+    const upd={config:lobbyConfigFromForm()};
+    Object.keys((mp.lobby&&mp.lobby.players)||{}).forEach(pid=>{ upd["players/"+pid+"/lobbyReady"]=null; });
+    await mp.ref.update(upd); // everyone re-readies after a settings change
+    mp.editing=false;
+    show("lobby");
+  }catch(e){ banner("Couldn't update the lobby ("+e+")."); }
+  finally{ updateStartBtn(); }
 }
 async function joinLobby(){
   const code=($("joincode").value||"").trim().toUpperCase();
@@ -961,7 +988,7 @@ async function joinLobby(){
   }catch(e){ out.textContent="Join failed ("+e+")."; }
 }
 function enterLobby(code,isHost){
-  mp={code, isHost, ref:db.ref("lobbies/"+code), lobby:null, overAt:null, shownRound:-1, submitted:-1, cdTimer:null, summaryShown:false, gen:0, restarting:false};
+  mp={code, isHost, ref:db.ref("lobbies/"+code), lobby:null, overAt:null, shownRound:-1, submitted:-1, cdTimer:null, summaryShown:false, gen:0, restarting:false, starting:false, editing:false, rushShown:false, lastDeadline:null};
   mp.ref.child("players/"+PID+"/online").onDisconnect().set(false);
   $("lobbycode").textContent=code;
   show("lobby");
@@ -992,7 +1019,8 @@ function leaveLobby(msg){
   $("mproundlist").hidden=true; $("standings").hidden=true;
   $("againbtn").hidden=false; $("againbtn").disabled=false; $("againbtn").textContent="Play this city again";
   $("homebtn").textContent="Choose another city";
-  $("againstatus").hidden=true;
+  $("againstatus").hidden=true; $("tolobbybtn").hidden=true;
+  $("timer").classList.remove("rush"); $("rushalert").hidden=true;
   $("result").classList.remove("show");
   $("backtoresults").hidden=true; $("guessbox").hidden=false;
   show("home");
@@ -1001,7 +1029,13 @@ function leaveLobby(msg){
 }
 function mpSync(){
   const L=mp.lobby;
-  if(L.status==="waiting"){ renderLobbyScreen(); return; }
+  if(L.status==="waiting"){
+    if(game&&game.mp){ stopTimer(); game=null; } // back from a finished game
+    renderLobbyScreen();
+    const active=document.querySelector(".screen.active");
+    if(!mp.editing && (!active||active.id!=="lobby")) show("lobby");
+    return;
+  }
   if(L.status==="playing"){
     if(!game || !game.mp || mp.gen!==(L.gen||1)) startMpGame();
     if(L.roundIdx!==game.roundIdx) beginMpRound();
@@ -1027,12 +1061,13 @@ function renderLobbyScreen(){
   });
   const others=entries.filter(([pid,p])=>pid!==L.host && p.online!==false);
   const readyCount=others.filter(([,p])=>p.lobbyReady).length;
+  $("editlobbybtn").hidden=!mp.isHost;
   if(mp.isHost){
     $("readybtn").hidden=true;
     $("lobbystart").hidden=false;
     const allReady = readyCount===others.length;
-    $("lobbystart").disabled=!allReady;
-    $("lobbywait").textContent = others.length===0
+    $("lobbystart").disabled=!allReady||mp.starting;
+    if(!mp.starting) $("lobbywait").textContent = others.length===0
       ? "Start solo, or wait for friends to join."
       : (allReady ? "Everyone's ready – go!" : readyCount+"/"+others.length+" players ready…");
   } else {
@@ -1073,6 +1108,8 @@ function beginMpRound(){
   game.actual=new google.maps.LatLng(loc.lat,loc.lng);
   game.startPanoId=loc.pano;
   game.place=loc.place||null;
+  mp.rushShown=false; mp.lastDeadline=null;
+  $("timer").classList.remove("rush"); $("rushalert").hidden=true;
   ensurePanoAndMap();
   panorama.setPano(loc.pano);
   panorama.setPov({heading:Math.random()*360, pitch:0});
@@ -1099,7 +1136,13 @@ function startMpTimer(){
   $("timerwrap").hidden=false;
   const tick=()=>{
     if(!mp||!game) return;
-    game.timeLeft=Math.max(0,Math.ceil((mpDeadline()-nowSrv())/1000));
+    const d=mpDeadline();
+    // first pin landed and shrank the clock: make it unmissable for whoever hasn't guessed
+    if(mp.lastDeadline!==null && d<mp.lastDeadline-1500 && !mp.rushShown && mp.submitted!==game.roundIdx){
+      rushAlert(Math.max(0,Math.ceil((d-nowSrv())/1000)));
+    }
+    mp.lastDeadline=d;
+    game.timeLeft=Math.max(0,Math.ceil((d-nowSrv())/1000));
     renderTimer();
     if(game.timeLeft<=0){
       stopTimer();
@@ -1109,6 +1152,16 @@ function startMpTimer(){
   };
   tick();
   game.timerId=setInterval(tick,500);
+}
+function rushAlert(secs){
+  mp.rushShown=true;
+  $("rushtext").textContent="Someone pinned! "+secs+"s to guess";
+  const el=$("rushalert");
+  el.hidden=false;
+  el.classList.remove("go"); void el.offsetWidth; el.classList.add("go");
+  $("timer").classList.add("rush");
+  clearTimeout(rushAlert._t);
+  rushAlert._t=setTimeout(()=>{ el.hidden=true; }, 1900);
 }
 function submitMpGuess(timedOut){
   if(!mp||!game||mp.submitted===game.roundIdx) return;
@@ -1147,6 +1200,7 @@ function maybeEndMpRound(){
   mp.overAt=nowSrv();
   mp.shownRound=idx;
   stopTimer();
+  $("timer").classList.remove("rush"); $("rushalert").hidden=true;
   showMpRoundResult(idx);
   startAdvanceCountdown(idx);
 }
@@ -1228,6 +1282,7 @@ function showMpSummary(){
   $("againbtn").hidden=false;
   $("againbtn").disabled=false;
   $("againbtn").textContent="Play again";
+  $("tolobbybtn").hidden=false;
   $("homebtn").textContent="Return to main menu";
   const st=$("standings"); st.hidden=false; st.innerHTML="";
   const medals=["🥇","🥈","🥉"];
@@ -1312,6 +1367,7 @@ $("savekey").addEventListener("click",()=>{
 $("searchbtn").addEventListener("click",searchCity);
 $("citysearch").addEventListener("keydown",e=>{ if(e.key==="Enter") searchCity(); });
 $("startbtn").addEventListener("click",async ()=>{
+  if(mp&&mp.editing){ updateLobbySettings(); return; }
   if(mode==="mp"){ createLobby(); return; }
   const rounds=parseInt($("roundsel").value,10);
   const timer=parseInt($("timersel").value,10);
@@ -1354,11 +1410,56 @@ $("gosp").addEventListener("click",()=>setView("sp"));
 $("gomp").addEventListener("click",()=>setView("mpchoice"));
 $("gocreate").addEventListener("click",()=>setView("create"));
 $("gojoin").addEventListener("click",()=>setView("join"));
-$("backbtn").addEventListener("click",()=>setView(view==="create"||view==="join" ? "mpchoice" : "entry"));
+$("backbtn").addEventListener("click",()=>{
+  if(mp&&mp.editing){ mp.editing=false; show("lobby"); return; }
+  setView(view==="create"||view==="join" ? "mpchoice" : "entry");
+});
 $("joinbtn").addEventListener("click",joinLobby);
 $("joincode").addEventListener("keydown",e=>{ if(e.key==="Enter") joinLobby(); });
-$("lobbystart").addEventListener("click",()=>{
-  if(mp&&mp.isHost) mp.ref.update({status:"playing", roundIdx:0, roundStart:firebase.database.ServerValue.TIMESTAMP});
+$("lobbystart").addEventListener("click",async ()=>{
+  if(!(mp&&mp.isHost)||mp.starting||!mp.lobby) return;
+  mp.starting=true;
+  const c=mp.lobby.config;
+  try{
+    $("lobbystart").disabled=true;
+    $("lobbywait").textContent="Finding "+c.rounds+" spots in "+c.cityName+"…";
+    const used=new Set(), locs=[];
+    for(let i=0;i<c.rounds;i++){
+      const d=await findStreetViewSpot(c.area,used);
+      locs.push({lat:d.location.latLng.lat(), lng:d.location.latLng.lng(), pano:d.location.pano, place:c.area.lastPlace||null});
+    }
+    if(!mp||!mp.lobby||mp.lobby.status!=="waiting") return;
+    const upd={locations:locs, status:"playing", roundIdx:0,
+               roundStart:firebase.database.ServerValue.TIMESTAMP, gen:((mp.lobby.gen)||1)+1};
+    Object.keys(mp.lobby.players||{}).forEach(pid=>{
+      upd["players/"+pid+"/guesses"]=null;
+      upd["players/"+pid+"/total"]=0;
+      upd["players/"+pid+"/again"]=null;
+      upd["players/"+pid+"/lobbyReady"]=null;
+    });
+    await mp.ref.update(upd);
+  }catch(e){ banner("Couldn't start the game ("+e+")."); }
+  finally{ if(mp) mp.starting=false; }
+});
+$("tolobbybtn").addEventListener("click",()=>{
+  if(!mp) return;
+  mp.ref.transaction(cur=>{
+    if(cur&&cur.status==="finished"){
+      cur.status="waiting"; cur.roundIdx=0;
+      if(cur.players) Object.keys(cur.players).forEach(pid=>{
+        const p=cur.players[pid];
+        p.guesses=null; p.total=0; p.again=null; p.lobbyReady=null;
+      });
+    }
+    return cur;
+  });
+});
+$("editlobbybtn").addEventListener("click",()=>{
+  if(!(mp&&mp.isHost)) return;
+  mp.editing=true;
+  show("home");
+  setView("create");
+  banner("Pick new settings, then hit “Update lobby”. The code stays "+mp.code+".", 9000);
 });
 $("lobbyleave").addEventListener("click",()=>leaveLobby());
 $("readybtn").addEventListener("click",()=>{
