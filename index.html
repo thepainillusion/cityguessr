@@ -343,6 +343,7 @@ function banner(msg, ms=8000){
 function getKey(){ try{ return localStorage.getItem(LS_KEY) || EMBEDDED_KEY; }catch(e){ return EMBEDDED_KEY; } }
 function setKey(k){ try{ localStorage.setItem(LS_KEY,k); }catch(e){} }
 function fmtKm(m){ return m<1000 ? Math.round(m)+" m" : (m/1000).toFixed(m<10000?2:1)+" km"; }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function fmtPts(n){ return n.toLocaleString("en-US"); }
 function areaBounds(area){
   if(area.type==="world") return new google.maps.LatLngBounds(
@@ -437,7 +438,7 @@ function refreshKeyUI(){
 function updateStartBtn(){
   $("startbtn").disabled = !(getKey() && selectedCity);
   $("pickedlabel").innerHTML = selectedCity
-    ? "Playing <b>"+selectedCity.name+"</b>"+(selectedCity.country?", "+selectedCity.country:"")
+    ? "Playing <b>"+esc(selectedCity.name)+"</b>"+(selectedCity.country?", "+esc(selectedCity.country):"")
     : (getKey() ? "Choose a city to begin." : "Save an API key, then choose a city.");
 }
 function buildCityGrid(){
